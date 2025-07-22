@@ -1,16 +1,21 @@
-# geowake2
+#GeoWake
 
-A new Flutter project.
+GeoWake is a smart, location-based wake-up app that makes your daily commute stress-free.
+Imagine never missing your stop again—whether you're taking the metro or driving—because GeoWake monitors your journey in real time and alerts you 
+just before you reach your destination.
 
-## Getting Started
+What It Solves:
 
-This project is a starting point for a Flutter application.
+    Missed Stops: Automatically alerts you when you're approaching your chosen stop, whether it's by distance or time.
+    Ease-of-Use: Set your destination and preferred alert (like "wake me 2 minutes before I reach my stop") and let the app do the rest.
+    Accurate Tracking: Uses a combination of on-device GPS and smart API calls to deliver accurate predictions—even if you lose connectivity underground.
+    Battery Efficiency: GeoWake smartly adjusts its location update frequency based on your battery level, ensuring minimal drain while you travel.
 
-A few resources to get you started if this is your first Flutter project:
+How It Works (In Brief):
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+    Destination & Settings: Enter your destination via an intuitive search interface. Choose whether you want an alert based on time (minutes) or distance (kilometers).
+    Real-Time Monitoring: The app continuously tracks your location and compares it to your planned route.
+    Smart Alerts: When you’re about to reach your stop, GeoWake sends you a local notification—no need to constantly check the map.
+    Offline Reliability: Even if you lose connection (like underground), the app uses cached route data and on-device computations to keep you informed.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+GeoWake makes your commute easier by letting you enjoy your journey, without the hassle of waking up too early or missing your stop.
