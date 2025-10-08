@@ -19,3 +19,11 @@ How It Works (In Brief):
     Offline Reliability: Even if you lose connection (like underground), the app uses cached route data and on-device computations to keep you informed.
 
 GeoWake makes your commute easier by letting you enjoy your journey, without the hassle of waking up too early or missing your stop.
+
+## Contributors
+
+This project is maintained by:
+- [Raed2180416](https://github.com/Raed2180416) - Project Owner
+- [Anirudha Belligundu](https://github.com/Anirudha-Belligundu) - Core Contributor
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for more details.

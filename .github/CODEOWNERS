@@ -1,0 +1,23 @@
+# GeoWake Code Owners
+# These users will be automatically requested for review when someone opens a pull request.
+# More information: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+* @Raed2180416 @Anirudha-Belligundu
+
+# Core application code
+/lib/ @Raed2180416 @Anirudha-Belligundu
+/android/ @Raed2180416 @Anirudha-Belligundu
+/ios/ @Raed2180416 @Anirudha-Belligundu
+
+# Documentation
+/docs/ @Raed2180416 @Anirudha-Belligundu
+*.md @Raed2180416 @Anirudha-Belligundu
+
+# Tests
+/test/ @Raed2180416 @Anirudha-Belligundu
+/integration_test/ @Raed2180416 @Anirudha-Belligundu
+
+# Configuration files
+*.yaml @Raed2180416 @Anirudha-Belligundu
+*.json @Raed2180416 @Anirudha-Belligundu
