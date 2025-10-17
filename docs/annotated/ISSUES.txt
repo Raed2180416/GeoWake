@@ -1,0 +1,534 @@
+# GeoWake Project Issues and Improvement Opportunities
+# Generated: 2025-10-17
+# Scope: Comprehensive code analysis of lib/ and test/ directories
+# Purpose: Track technical debt, potential bugs, and enhancement opportunities
+
+═══════════════════════════════════════════════════════════════════════════
+CRITICAL ISSUES (High Priority - Security/Data Loss Risks)
+═══════════════════════════════════════════════════════════════════════════
+
+[CRITICAL-001] No API Key Validation in Server
+File: Backend server (implied by ApiClient)
+Issue: If backend server's Google Maps API key is invalid or revoked, all route
+       requests fail silently with generic network errors. No mechanism to detect
+       or report API key issues.
+Impact: Total app failure with unclear error messages to users.
+Fix: Add API key validation endpoint, health check with actual API call, 
+     error classification to distinguish auth from network failures.
+
+[CRITICAL-002] No Hive Encryption
+Files: lib/services/route_cache.dart, lib/screens/otherimpservices/recent_locations_service.dart
+Issue: Hive boxes store data unencrypted on device storage. Recent locations
+       and cached routes contain sensitive user location history.
+Impact: Location privacy breach if device is compromised or backup extracted.
+Fix: Implement Hive encryption using encrypted_box, secure key storage in 
+     platform keychain (iOS Keychain, Android Keystore).
+
+[CRITICAL-003] Background Service Isolate Communication Not Validated
+File: lib/services/trackingservice.dart, lib/main.dart
+Issue: Messages from background isolate to foreground (fireAlarm events) are
+       not validated. Malicious app could potentially inject fake alarm events.
+Impact: False alarms, user annoyance, trust erosion.
+Fix: Add message signing/verification, validate event structure and ranges,
+     implement rate limiting on alarm triggers.
+
+[CRITICAL-004] No Permission Revocation Handling
+File: lib/main.dart, lib/services/permission_service.dart
+Issue: If user revokes location or notification permission after granting,
+       app doesn't detect or handle it. Tracking continues with stale data.
+Impact: Alarms don't display (notification permission), tracking fails silently
+       (location permission).
+Fix: Implement permission status polling, graceful degradation, user notification
+     when critical permissions are revoked, guided permission re-request flow.
+
+[CRITICAL-005] No Crash Reporting or Analytics
+Files: All files (global issue)
+Issue: No crash reporting (Sentry, Firebase Crashlytics) or analytics means
+       production issues go undetected until user reports.
+Impact: Hidden bugs, no usage metrics, difficult debugging of production issues.
+Fix: Integrate crash reporting service, add non-PII analytics, implement
+     error boundaries with automatic reporting.
+
+═══════════════════════════════════════════════════════════════════════════
+HIGH PRIORITY ISSUES (Functionality/UX Problems)
+═══════════════════════════════════════════════════════════════════════════
+
+[HIGH-001] Theme Preference Not Persisted
+File: lib/main.dart
+Issue: isDarkMode state resets to false (light theme) on every app restart.
+       User must re-toggle theme each time.
+Impact: Poor UX, settings don't persist.
+Fix: Save isDarkMode to Hive or SharedPreferences, restore on startup.
+Code: In MyAppState.initState():
+      ```dart
+      final prefs = await SharedPreferences.getInstance();
+      setState(() => isDarkMode = prefs.getBool('darkMode') ?? false);
+      ```
+
+[HIGH-002] No System Theme Detection
+File: lib/main.dart, lib/themes/appthemes.dart
+Issue: App doesn't respect system dark mode setting (Android 10+, iOS 13+).
+       User must manually toggle even if system is in dark mode.
+Impact: Inconsistent with system UI, annoying for users who want auto-switching.
+Fix: Use MediaQuery.platformBrightnessOf(context) or SchedulerBinding to detect
+     system theme, provide "System Default" option in settings.
+
+[HIGH-003] No Error Retry Logic
+Files: lib/services/direction_service.dart, lib/services/api_client.dart
+Issue: Network request failures aren't retried. Transient errors (timeout,
+       temporary network loss) cause permanent failure.
+Impact: Routes fail to fetch even if network recovers seconds later.
+Fix: Implement exponential backoff retry with configurable attempts (3-5),
+     distinguish retryable (503, timeout) from non-retryable (401, 404) errors.
+
+[HIGH-004] Route Cache TTL Not Enforced on Retrieval
+File: lib/services/route_cache.dart
+Issue: Cache.get() returns entries even if timestamp exceeds TTL. Caller must
+       manually check freshness. Easy to miss, leads to stale routes.
+Impact: Users navigate with outdated routes, missing traffic updates.
+Fix: Add automatic expiration check in get(), return null for expired entries,
+     optionally trigger background refresh on near-expiration.
+
+[HIGH-005] No Offline Mode Indicator
+Files: lib/screens/homescreen.dart, lib/screens/maptracking.dart
+Issue: When network is unavailable, app continues showing cached data without
+       indicating it's stale. Users don't know if route is current.
+Impact: Navigation with outdated information, user confusion.
+Fix: Add network connectivity monitoring (connectivity_plus package), show
+     indicator when offline, warn when using cached routes >5 minutes old.
+
+[HIGH-006] Alarm Can't Be Snoozed
+File: lib/screens/alarm_fullscreen.dart
+Issue: When alarm triggers, user can only dismiss or continue tracking. No
+       snooze option if user wants 5 more minutes of sleep.
+Impact: Limited functionality compared to traditional alarms.
+Fix: Add "Snooze 5 min" button, reschedule alarm check after snooze period.
+
+[HIGH-007] No Route Preview Before Tracking
+File: lib/screens/homescreen.dart
+Issue: User can't see route polyline before starting tracking. Must trust that
+       route is correct and start tracking to view it.
+Impact: Might start tracking wrong route, wasted battery/time.
+Fix: Add route preview screen showing polyline, distance, ETA, transit switches
+     before "Start Tracking" button.
+
+[HIGH-008] Background Service Doesn't Restart After Force Kill
+File: lib/services/trackingservice.dart
+Issue: If user force-kills app or OS kills it for memory, background service
+       stops. Active tracking ends, alarm won't trigger.
+Impact: Critical failure - user misses their stop/destination.
+Fix: Implement WorkManager (Android) or Background Tasks (iOS) for restart,
+     persistent notification with high priority, FOREGROUND_SERVICE permission.
+
+[HIGH-009] No Battery Optimization Guidance
+Files: lib/services/trackingservice.dart, lib/config/power_policy.dart
+Issue: Android battery optimization can kill background service. App doesn't
+       guide users to whitelist it.
+Impact: Unreliable tracking, missed alarms.
+Fix: Detect if battery optimization is enabled, show dialog with instructions
+     to disable for GeoWake, deep link to battery settings.
+
+[HIGH-010] No Multi-Language Support
+Files: All UI files
+Issue: All strings are hardcoded in English. No localization (i18n).
+Impact: Unusable for non-English speakers.
+Fix: Extract strings to ARB files, use intl package, provide translations for
+     key languages (Spanish, Hindi, Mandarin, etc.).
+
+═══════════════════════════════════════════════════════════════════════════
+MEDIUM PRIORITY ISSUES (Code Quality/Maintainability)
+═══════════════════════════════════════════════════════════════════════════
+
+[MEDIUM-001] No Input Validation on Route Models
+File: lib/models/route_models.dart
+Issue: RouteModel can be constructed with invalid data (negative ETA, empty
+       polyline, null destination). No validation in constructor.
+Impact: Runtime errors, division by zero, null pointer exceptions.
+Fix: Add validation in constructor:
+     ```dart
+     assert(currentETA >= 0, 'ETA cannot be negative');
+     assert(polylineDecoded.isNotEmpty, 'Polyline cannot be empty');
+     ```
+
+[MEDIUM-002] No Equality/HashCode for Models
+File: lib/models/route_models.dart
+Issue: RouteModel doesn't override == and hashCode. Two identical routes aren't
+       considered equal, can't be used in Sets or as Map keys properly.
+Impact: Duplicate routes in collections, incorrect set operations.
+Fix: Implement == and hashCode, or use equatable package:
+     ```dart
+     @override
+     bool operator ==(Object other) => 
+       other is RouteModel && other.routeId == routeId;
+     @override
+     int get hashCode => routeId.hashCode;
+     ```
+
+[MEDIUM-003] Large Original Response Stored in Memory
+File: lib/models/route_models.dart
+Issue: RouteModel.originalResponse stores full Google API response (can be
+       10-50KB per route). Multiple routes = hundreds of KB in memory.
+Impact: Increased memory usage, slower serialization.
+Fix: Store originalResponse separately (disk or separate Hive box), keep only
+     reference in RouteModel, lazy load on demand.
+
+[MEDIUM-004] No Copy Constructor for Route Model
+File: lib/models/route_models.dart
+Issue: Can't easily create modified version of RouteModel. Must manually
+       construct new instance with most fields copied.
+Impact: Verbose code, error-prone (easy to forget fields).
+Fix: Add copyWith() method:
+     ```dart
+     RouteModel copyWith({double? currentETA, bool? isActive, ...}) {
+       return RouteModel(
+         polylineEncoded: polylineEncoded,
+         currentETA: currentETA ?? this.currentETA,
+         isActive: isActive ?? this.isActive,
+         ...
+       );
+     }
+     ```
+
+[MEDIUM-005] No JSON Serialization for Route Model
+File: lib/models/route_models.dart
+Issue: RouteModel can't be easily serialized to/from JSON. Must manually
+       construct from Map<String, dynamic>.
+Impact: Can't easily save routes to Hive, SharedPreferences, or send via network.
+Fix: Add toJson() and fromJson() methods, or use json_serializable package.
+
+[MEDIUM-006] Inconsistent Error Logging
+Files: Multiple service files
+Issue: Some files use dev.log(), others use print(), some use debugPrint().
+       Inconsistent log names and formats.
+Impact: Difficult to filter logs, inconsistent output.
+Fix: Standardize on dev.log() with consistent naming convention, create logging
+     wrapper for production vs debug modes.
+
+[MEDIUM-007] No Timeout on HTTP Server Requests
+File: lib/debug/dev_server.dart
+Issue: HTTP request handlers don't have timeouts. Slow demo operations could
+       hang indefinitely, blocking server.
+Impact: Dev server becomes unresponsive, must restart app.
+Fix: Add timeout to async operations:
+     ```dart
+     await DemoRouteSimulator.startDemoJourney(origin: origin)
+       .timeout(Duration(seconds: 30));
+     ```
+
+[MEDIUM-008] Hard-Coded Magic Numbers
+Files: Multiple files
+Issue: Many magic numbers without constants:
+       - 200m alarm threshold (demo_tools.dart)
+       - 300m origin deviation (route_cache.dart)
+       - 5 minute TTL (route_cache.dart)
+       - 1.8x pulse multiplier (pulsing_dots.dart)
+Impact: Hard to maintain, unclear meaning, difficult to tune.
+Fix: Extract to named constants:
+     ```dart
+     static const double DEFAULT_ALARM_DISTANCE_METERS = 200.0;
+     static const Duration ROUTE_CACHE_TTL = Duration(minutes: 5);
+     ```
+
+[MEDIUM-009] No Null Safety Assertions
+Files: Multiple files
+Issue: Code uses ! (null assertion operator) without null checks, assuming
+       values are non-null without verification.
+Impact: Runtime crashes if assumptions violated.
+Fix: Add defensive null checks, use ?? (null coalescing) for defaults.
+
+[MEDIUM-010] Global Mutable State
+Files: lib/services/notification_service.dart, lib/services/trackingservice.dart
+Issue: Static isTestMode flags are global mutable state, can cause test
+       interference if not properly reset.
+Impact: Test pollution, flaky tests.
+Fix: Encapsulate in configuration object, ensure proper tearDown in tests.
+
+═══════════════════════════════════════════════════════════════════════════
+LOW PRIORITY ISSUES (Nice-to-Have Improvements)
+═══════════════════════════════════════════════════════════════════════════
+
+[LOW-001] No Dark Theme for Splash Screen
+File: lib/screens/splash_screen.dart
+Issue: Splash screen might not respect dark theme setting (depends on implementation).
+Impact: Bright flash when opening app in dark mode.
+Fix: Match splash screen to system theme or user preference.
+
+[LOW-002] PulsingDots Animation Continues Off-Screen
+File: lib/widgets/pulsing_dots.dart
+Issue: Timer continues animating even when widget is off-screen (scrolled away).
+Impact: Minimal battery drain from unnecessary animations.
+Fix: Use AutomaticKeepAliveClientMixin to pause when off-screen, or use
+     VisibilityDetector package.
+
+[LOW-003] No Custom Route Colors
+File: lib/screens/maptracking.dart (implied)
+Issue: Route polyline always uses same color. Can't distinguish multiple routes.
+Impact: Visual confusion if showing multiple routes (future feature).
+Fix: Allow custom Polyline color per route, use color picker in UI.
+
+[LOW-004] No Route History
+Issue: Recent routes aren't saved for quick re-selection.
+Impact: Must re-enter frequent routes each time.
+Fix: Store recent routes in Hive, show in dropdown/list on homescreen.
+
+[LOW-005] No ETA Range/Confidence
+Files: lib/services/eta_utils.dart, lib/models/route_models.dart
+Issue: ETA is single value with no confidence interval. Real travel times vary.
+Impact: Users might expect exact ETA, get surprised by variance.
+Fix: Calculate ETA range (best case / worst case), show as "15-20 min" instead
+     of "17 min".
+
+[LOW-006] No Speed Limit Awareness
+Files: lib/services/eta_utils.dart
+Issue: ETA calculations don't account for speed limits. Could recommend speeding.
+Impact: Unrealistic ETAs, potential legal issues.
+Fix: Use speed limit data from maps API, cap estimated speed at limit.
+
+[LOW-007] No Landmarks for Transfer Points
+File: lib/models/route_models.dart
+Issue: TransitSwitch has location but no landmark/station name. Alarm says
+       "transfer here" without identifying the station.
+Impact: Confusing for users unfamiliar with route.
+Fix: Add stationName field to TransitSwitch, parse from API response.
+
+[LOW-008] No A/B Testing Framework
+Files: All files (global issue)
+Issue: Can't test UI variations or feature experiments with subsets of users.
+Impact: Risky to deploy changes, no data on which UX works better.
+Fix: Integrate remote config (Firebase Remote Config), implement feature flags.
+
+[LOW-009] No User Feedback Mechanism
+Files: All screens (global issue)
+Issue: Users can't report bugs or suggest features from within app.
+Impact: Feedback must go through external channels (email, app store reviews).
+Fix: Add "Send Feedback" option in settings, integrate with support system.
+
+[LOW-010] No Onboarding/Tutorial
+Files: All screens (global issue)
+Issue: First-time users see empty home screen with no guidance.
+Impact: Confusion, high learning curve, potential abandonment.
+Fix: Add onboarding flow explaining key features, interactive tutorial showing
+     how to create and track route.
+
+═══════════════════════════════════════════════════════════════════════════
+TECHNICAL DEBT
+═══════════════════════════════════════════════════════════════════════════
+
+[DEBT-001] Outdated Dependencies
+File: pubspec.yaml
+Issue: Should regularly update dependencies for security patches and features.
+Action: Run `flutter pub outdated`, update dependencies quarterly.
+
+[DEBT-002] No CI/CD Pipeline
+Issue: No automated testing on commits, manual deployment process.
+Action: Set up GitHub Actions for automated testing, code coverage reports,
+        release builds.
+
+[DEBT-003] No Code Coverage Tracking
+Issue: Don't know which code is tested, which is not.
+Action: Run `flutter test --coverage`, integrate with codecov.io or coveralls.
+
+[DEBT-004] No Linting Rules Enforcement
+File: analysis_options.yaml
+Issue: Linting rules exist but might not be comprehensive or enforced in CI.
+Action: Enable pedantic or flutter_lints, fail builds on lint errors.
+
+[DEBT-005] No Architecture Documentation
+Issue: No high-level architecture diagrams or documentation of system design.
+Action: Create architecture decision records (ADRs), system diagrams, component
+        interaction flows.
+
+[DEBT-006] No Performance Profiling
+Issue: No regular performance testing, don't know if app has regressions.
+Action: Set up performance benchmarks, profile critical paths (route loading,
+        alarm triggering), track metrics over time.
+
+[DEBT-007] No Accessibility Audit
+Issue: Haven't tested with screen readers, high contrast mode, large fonts.
+Action: Run accessibility audit, test with TalkBack/VoiceOver, add semantic
+        labels to all interactive elements.
+
+[DEBT-008] No Security Audit
+Issue: No professional security review of code or infrastructure.
+Action: Conduct security audit focusing on:
+        - API key security
+        - Data encryption
+        - Location privacy
+        - Background service permissions
+
+═══════════════════════════════════════════════════════════════════════════
+IDENTIFIED TODO COMMENTS
+═══════════════════════════════════════════════════════════════════════════
+
+[TODO-001] Replace Fallback Speed with Sensor Fusion
+File: lib/screens/maptracking.dart
+Line: ~Line with fallbackSpeed = 12.0
+Comment: "TODO: replace with fusion when ready"
+Issue: Using hard-coded speed instead of sensor fusion data.
+Action: Integrate sensor_fusion.dart data when ready.
+
+[TODO-002] Log RouteRegistry Tuning Metrics
+File: lib/services/route_registry.dart
+Comment: "TODO(telemetry): Log candidate hit/miss distances to tune this factor with field data."
+Issue: Need real-world data to optimize route matching factor.
+Action: Add telemetry logging for route matching decisions, collect anonymized
+        metrics, analyze to find optimal factor value.
+
+═══════════════════════════════════════════════════════════════════════════
+TEST COVERAGE GAPS
+═══════════════════════════════════════════════════════════════════════════
+
+[TEST-001] No Widget Tests for Screens
+Issue: screens/*.dart have no widget tests. Only unit tests for services.
+Impact: UI regressions not caught by tests.
+Fix: Add widget tests for each screen:
+     - SplashScreen: verify initialization
+     - HomeScreen: verify route creation flow
+     - MapTrackingScreen: verify map rendering
+     - AlarmFullscreen: verify button actions
+
+[TEST-002] No Integration Test for Full Journey
+Issue: No end-to-end test of complete user journey (create route → track → alarm).
+Impact: Integration bugs between components not caught.
+Fix: Create integration test simulating full user flow from app launch to alarm.
+
+[TEST-003] No Tests for Error Cases
+Issue: Tests focus on happy path, minimal error case coverage.
+Impact: Error handling bugs not caught.
+Fix: Add tests for:
+     - Network failures
+     - Permission denials
+     - Invalid user input
+     - Race conditions
+
+[TEST-004] No Performance Tests
+Issue: No tests measuring performance (route load time, alarm latency, etc.).
+Impact: Performance regressions not caught.
+Fix: Add benchmark tests, set performance budgets, fail if exceeded.
+
+[TEST-005] No Platform-Specific Tests
+Issue: Tests run only on one platform, platform-specific issues not caught.
+Impact: Android/iOS differences cause production bugs.
+Fix: Run tests on both platforms in CI, test platform-specific features
+     (background service, notifications).
+
+═══════════════════════════════════════════════════════════════════════════
+POTENTIAL FUTURE ENHANCEMENTS
+═══════════════════════════════════════════════════════════════════════════
+
+[ENHANCEMENT-001] Voice Assistant Integration
+Description: "OK Google, navigate to work and wake me 5 minutes before arrival"
+Effort: High (Google Assistant SDK, intent handling)
+Value: Hands-free operation, improved UX
+
+[ENHANCEMENT-002] Wearable Support
+Description: Show ETA and trigger alarms on smartwatch
+Effort: Medium (platform channels, Wear OS/watchOS SDKs)
+Value: Convenience, accessibility
+
+[ENHANCEMENT-003] Social Features
+Description: Share routes with friends, see others' favorite routes
+Effort: High (backend infrastructure, privacy considerations)
+Value: Community engagement, discovery
+
+[ENHANCEMENT-004] Route Recording
+Description: Record actual GPS path taken, compare with planned route
+Effort: Medium (GPS logging, visualization)
+Value: Post-journey analysis, route optimization
+
+[ENHANCEMENT-005] Multi-Stop Routes
+Description: Support routes with multiple waypoints/destinations
+Effort: Medium (route model extension, UI changes)
+Value: Complex journey support (errands, tour guides)
+
+[ENHANCEMENT-006] Dynamic Alarm Adjustment
+Description: AI learns user wake-up time preferences, adjusts alarm accordingly
+Effort: High (ML model, training data collection)
+Value: Personalization, improved UX
+
+[ENHANCEMENT-007] Traffic Prediction
+Description: Use historical traffic data to improve ETA accuracy
+Effort: High (data collection, API integration)
+Value: More accurate alarms, better planning
+
+[ENHANCEMENT-008] Offline Map Download
+Description: Download map tiles for offline use during tracking
+Effort: High (tile storage, caching strategy)
+Value: Reliability without network, data savings
+
+[ENHANCEMENT-009] Custom Alarm Sounds
+Description: Allow users to upload custom ringtones
+Effort: Low (file picker, audio validation)
+Value: Personalization, user satisfaction
+
+[ENHANCEMENT-010] Trip Statistics
+Description: Track and display travel statistics (total distance, time saved, etc.)
+Effort: Medium (data aggregation, visualization)
+Value: Gamification, user engagement
+
+═══════════════════════════════════════════════════════════════════════════
+SUMMARY STATISTICS
+═══════════════════════════════════════════════════════════════════════════
+
+Total Issues Identified: 50+
+Critical: 5
+High Priority: 10
+Medium Priority: 10
+Low Priority: 10
+Technical Debt: 8
+TODO Comments: 2
+Test Coverage Gaps: 5
+Future Enhancements: 10
+
+Most Critical Areas:
+1. Security (API key exposure, data encryption, permission handling)
+2. Reliability (crash reporting, error retry, background service persistence)
+3. UX (theme persistence, offline mode, route preview, localization)
+4. Code Quality (input validation, error handling, logging consistency)
+
+Recommended Next Steps:
+1. Address all CRITICAL issues immediately (security and data loss risks)
+2. Implement crash reporting and analytics (visibility into production issues)
+3. Add comprehensive error handling and retry logic
+4. Improve test coverage (widget tests, integration tests, error cases)
+5. Conduct security and accessibility audits
+6. Set up CI/CD pipeline with automated testing
+
+═══════════════════════════════════════════════════════════════════════════
+MAINTENANCE SCHEDULE
+═══════════════════════════════════════════════════════════════════════════
+
+Weekly:
+- Review crash reports and user feedback
+- Triage new issues
+- Update dependency security patches
+
+Monthly:
+- Run code coverage analysis
+- Review and update technical debt backlog
+- Performance profiling
+- Dependency updates (non-breaking)
+
+Quarterly:
+- Major dependency updates
+- Security audit
+- Accessibility audit
+- Architecture review
+- User research and feedback analysis
+
+Annually:
+- Comprehensive security penetration testing
+- Major refactoring for accumulated technical debt
+- Platform SDK updates (Flutter, Android, iOS)
+- Feature roadmap planning
+
+═══════════════════════════════════════════════════════════════════════════
+END OF ISSUES FILE
+═══════════════════════════════════════════════════════════════════════════
+
+This file will be continuously updated as new issues are discovered and existing
+issues are resolved. Each issue should be tracked in project management system
+with appropriate labels, priorities, and assignments.
+
+Last Updated: 2025-10-17
+Next Review: 2025-10-24
