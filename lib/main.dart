@@ -1,77 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'services/bootstrap_service.dart';
 import 'services/trackingservice.dart';
-import 'services/api_client.dart';
 import 'screens/homescreen.dart';
 import 'screens/maptracking.dart';
-import 'screens/otherimpservices/preload_map_screen.dart';
 import 'screens/splash_screen.dart';
 import 'themes/appthemes.dart';
 import 'screens/otherimpservices/recent_locations_service.dart';
-import 'services/notification_service.dart';
 import 'services/navigation_service.dart';
-import 'dart:developer' as dev;
-import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
-import 'debug/dev_server.dart';
+import 'services/notification_service.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'services/persistence/tracking_session_state.dart';
+import 'dart:developer' as dev;
+import 'dart:async';
+// Dev/Diagnostics screens
+import 'screens/dev_route_sim_screen.dart';
+import 'screens/diagnostics_screen.dart';
+import 'screens/otherimpservices/preload_map_screen.dart';
+
+// With refactored bootstrap this remains splash; navigation happens after phase ready.
+String _initialRoute = '/splash';
+Map<String, dynamic>? _initialMapTrackingArgs;
 
 Future<void> main() async {
-  // Ensure Flutter binding is initialized before any Flutter-specific code.
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Hive itself. We will let the service manage opening the box.
-  try {
-    await Hive.initFlutter();
-    dev.log("Hive engine initialized successfully.", name: "main");
-  } catch (e) {
-    dev.log("FATAL: Hive initialization failed: $e", name: "main");
-  }
-  
-  // Initialize other essential services.
-  await _initializeServices();
-  
+  print('GW_ARES_MAIN_ENTER_REFAC');
   runApp(const MyApp());
+  // Defer heavy work until after first frame for faster perceived launch
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    BootstrapService.I.start();
+  });
 }
 
-// Separate function to keep service initializations clean.
-Future<void> _initializeServices() async {
-  // Initialize API client FIRST - this secures all API calls
-  try {
-    await ApiClient.instance.initialize();
-    dev.log("API Client initialized successfully.", name: "main");
-  } catch (e) {
-    dev.log("API Client initialization failed: $e", name: "main");
-  }
-
-  try {
-    await NotificationService().initialize();
-  } catch (e) {
-    dev.log("Notification Service initialization failed: $e", name: "main");
-  }
-
-  try {
-    await TrackingService().initializeService();
-  } catch (e) {
-    dev.log("Tracking Service initialization failed: $e", name: "main");
-  }
-
-  // Start lightweight dev HTTP server in debug/profile for remote demo triggers
-  if (kDebugMode || kProfileMode) {
-    // ignore: unawaited_futures
-    DevServer.start();
-  }
-}
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
-
   @override
   MyAppState createState() => MyAppState();
 }
 
 class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   bool isDarkMode = false;
+  Timer? _hbTimer;
+  int _hbCount = 0;
+  StreamSubscription? _bootstrapSub;
 
   @override
   void initState() {
@@ -83,8 +57,10 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // FIX: Call the permission check function here.
     // =======================================================================
     _checkNotificationPermission();
-    // If an alarm was fired while app was backgrounded, present it now.
+  // If an alarm was fired while app was backgrounded, present it now.
     NotificationService().showPendingAlarmScreenIfAny();
+  // Attempt to restore the ongoing journey notification if tracking is active and not suppressed
+  NotificationService().restoreJourneyProgressIfNeeded();
 
     // Bridge background 'fireAlarm' events to foreground UI/audio
     try {
@@ -101,9 +77,45 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
           allowContinueTracking: allow,
         );
       });
+      
+      // Listen for tracking stopped from notification button
+      service.on('trackingStopped').listen((event) async {
+        dev.log('Received trackingStopped event from background isolate', name: 'main');
+        try {
+          // Stop tracking in foreground isolate
+          await TrackingService().stopTracking();
+          
+          // Navigate away from map tracking screen if currently there
+          final nav = NavigationService.navigatorKey.currentState;
+          if (nav != null && nav.mounted) {
+            final currentRoute = ModalRoute.of(nav.context)?.settings.name;
+            if (currentRoute == '/mapTracking') {
+              dev.log('Navigating away from map tracking screen', name: 'main');
+              nav.pushNamedAndRemoveUntil('/', (r) => false);
+            }
+          }
+        } catch (e) {
+          dev.log('Error handling trackingStopped event: $e', name: 'main');
+        }
+      });
     } catch (e) {
       dev.log('Failed to subscribe to fireAlarm: $e', name: 'main');
     }
+
+    // Subscribe to bootstrap phases
+    _bootstrapSub = BootstrapService.I.states.listen((s) {
+      if (s.phase == BootstrapPhase.ready) {
+        // Navigate away from splash if still there
+        final nav = NavigationService.navigatorKey.currentState;
+        if (nav != null) {
+          final route = s.targetRoute ?? '/';
+            if (route == '/mapTracking') {
+              _initialMapTrackingArgs = s.mapTrackingArgs;
+            }
+          nav.pushNamedAndRemoveUntil(route == '/mapTracking' ? '/mapTracking' : '/', (r) => false, arguments: _initialMapTrackingArgs);
+        }
+      }
+    });
   }
 
   @override
@@ -111,7 +123,8 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Stop listening to prevent memory leaks.
     WidgetsBinding.instance.removeObserver(this);
     // As a final cleanup when the app is truly closing, close Hive.
-    Hive.close();
+    try { Hive.close(); } catch (_) {}
+    try { _bootstrapSub?.cancel(); } catch (_) {}
     super.dispose();
   }
 
@@ -127,10 +140,23 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
       if (Hive.isBoxOpen(RecentLocationsService.boxName)) {
         Hive.box(RecentLocationsService.boxName).flush();
       }
+      // If no active tracking session, schedule process close to avoid a dormant process lingering.
+      Future.delayed(const Duration(seconds: 1), () async {
+        if (!TrackingService.trackingActive) {
+          dev.log('No active tracking; process may be reclaimed by OS (no explicit foreground service).', name: 'main');
+          // NOTE: We deliberately do not call SystemNavigator.pop() because doing so
+          // can interfere with background service detach semantics on some OEM builds.
+          // Leaving the app paused lets the foreground Activity finish naturally while
+          // the background service (if started) keeps running; if no tracking was active
+          // the service is not started and the process becomes a candidate for reclaim.
+        }
+      });
     }
     if (state == AppLifecycleState.resumed) {
       // On resume, auto-present any pending full-screen alarm.
       NotificationService().showPendingAlarmScreenIfAny();
+      // Also restore progress notification if needed
+      NotificationService().restoreJourneyProgressIfNeeded();
     }
   }
 
@@ -150,11 +176,14 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Periodic heartbeat (debug only) – once every 10s for first minute
+    // (Uses a simple timer started on first build.)
+    _heartbeatInitOnce();
     return MaterialApp(
       title: 'GeoWake',
       navigatorKey: NavigationService.navigatorKey,
       theme: isDarkMode ? AppThemes.darkTheme : AppThemes.lightTheme,
-      initialRoute: '/splash',
+      initialRoute: _initialRoute,
       onGenerateRoute: (settings) {
         if (settings.name == '/splash') {
           return MaterialPageRoute(
@@ -162,17 +191,32 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
             settings: settings,
           );
         }
-        if (settings.name == '/preloadMap') {
-          final args = settings.arguments as Map<String, dynamic>;
+        if (settings.name == '/devSim') {
           return MaterialPageRoute(
-            builder: (_) => PreloadMapScreen(arguments: args),
+            builder: (_) => const DevRouteSimulationScreen(),
+            settings: settings,
+          );
+        }
+        if (settings.name == '/diagnostics') {
+          return MaterialPageRoute(
+            builder: (_) => const DiagnosticsScreen(),
             settings: settings,
           );
         }
         if (settings.name == '/mapTracking') {
+          final passArgs = settings.arguments ?? _initialMapTrackingArgs;
           return MaterialPageRoute(
             builder: (_) => MapTrackingScreen(),
-            settings: settings,
+            settings: RouteSettings(name: settings.name, arguments: passArgs),
+          );
+        }
+        if (settings.name == '/preloadMap') {
+          final args = (settings.arguments is Map<String, dynamic>)
+              ? settings.arguments as Map<String, dynamic>
+              : (_initialMapTrackingArgs ?? <String, dynamic>{});
+          return MaterialPageRoute(
+            builder: (_) => PreloadMapScreen(arguments: args),
+            settings: RouteSettings(name: settings.name, arguments: args),
           );
         }
         if (settings.name == '/') {
@@ -181,5 +225,18 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
         return null;
       },
     );
+  }
+
+  void _heartbeatInitOnce() {
+    if (_hbTimer != null) return;
+    _hbTimer = Timer.periodic(const Duration(seconds: 10), (t) async {
+      _hbCount++;
+      if (_hbCount > 6) { t.cancel(); return; }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final fast = prefs.getBool(TrackingSessionStateFile.trackingActiveFlagKey);
+        print('GW_ARES_MAIN_HB tick=$_hbCount fastFlag=$fast trackingActive=${TrackingService.trackingActive} autoResumed=${TrackingService.autoResumed} route=$_initialRoute');
+      } catch (e) { print('GW_ARES_MAIN_HB_FAIL tick=$_hbCount err=$e'); }
+    });
   }
 }

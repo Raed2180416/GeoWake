@@ -29,18 +29,30 @@ class SpeedThresholdModel {
 class DeviationMonitor {
   final Duration sustainDuration;
   final SpeedThresholdModel model;
+  // If true, entering deviation uses >= high instead of > high (useful for tuning / tests)
+  final bool inclusiveEntry;
+  final bool syncStream;
 
-  final _stateCtrl = StreamController<DeviationState>.broadcast();
+  final StreamController<DeviationState> _stateCtrl;
   Stream<DeviationState> get stream => _stateCtrl.stream;
 
   DateTime? _deviatingSince;
   bool _offroute = false;
   bool _sustained = false;
+  // Debug/testing: last evaluated sustained diff in milliseconds
+  int? lastSustainDiffMs;
 
   DeviationMonitor({
     this.sustainDuration = const Duration(seconds: 5),
     this.model = const SpeedThresholdModel(),
-  });
+    this.inclusiveEntry = false,
+    this.syncStream = false,
+  }) : _stateCtrl = StreamController<DeviationState>.broadcast(sync: syncStream);
+
+  /// Returns current high threshold for a speed (exposed for tests / metrics)
+  double highThreshold(double speedMps) => model.high(speedMps);
+  /// Returns current low threshold for a speed
+  double lowThreshold(double speedMps) => model.low(speedMps);
 
   void ingest({required double offsetMeters, required double speedMps, DateTime? at}) {
     final now = at ?? DateTime.now();
@@ -48,22 +60,27 @@ class DeviationMonitor {
     final tl = model.low(speedMps);
 
     if (!_offroute) {
-      if (offsetMeters > th) {
+      final enter = inclusiveEntry ? offsetMeters >= th : offsetMeters > th;
+      if (enter) {
         _offroute = true;
         _deviatingSince = now;
         _sustained = false;
       }
     } else {
       // currently deviating
-      if (offsetMeters < tl) {
+      if (offsetMeters <= tl) {
         // back on route
         _offroute = false;
         _sustained = false;
         _deviatingSince = null;
       } else {
         // still offroute; check sustain
-        if (!_sustained && _deviatingSince != null && now.difference(_deviatingSince!) >= sustainDuration) {
-          _sustained = true;
+        if (_deviatingSince != null) {
+          final diff = now.difference(_deviatingSince!);
+          lastSustainDiffMs = diff.inMilliseconds;
+          if (!_sustained && diff >= sustainDuration) {
+            _sustained = true;
+          }
         }
       }
     }

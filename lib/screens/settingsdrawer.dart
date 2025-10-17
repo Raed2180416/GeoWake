@@ -6,6 +6,8 @@ import '../main.dart';
 // --- STEP 1: ADD THIS IMPORT ---
 // This line tells our settings drawer that the RingtonesScreen exists and where to find it.
 import 'package:geowake2/screens/ringtones_screen.dart';
+import 'package:geowake2/screens/dev_route_sim_screen.dart';
+import 'package:geowake2/screens/diagnostics_screen.dart';
 
  
 class SettingsDrawer extends StatelessWidget {
@@ -63,6 +65,27 @@ class SettingsDrawer extends StatelessWidget {
               title: const Text('Go Premium'),
               onTap: () {
                 // Implement premium purchase flow
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.science_outlined),
+              title: const Text('Diagnostics'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (context) => const DiagnosticsScreen(),
+                ));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.route_outlined),
+              title: const Text('Dev Route Simulator'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (context) => const DevRouteSimulationScreen(),
+                ));
               },
             ),
             const Divider(),

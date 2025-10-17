@@ -65,6 +65,8 @@ class TestServiceInstance implements ServiceInstance { // Lightweight ServiceIns
 
 class TrackingService { // Foreground facade controlling background tracking service
   static bool isTestMode = false; // Global test toggle to use TestServiceInstance
+  // Configurable minimum time since start for time-alarm eligibility (matches lib/services/trackingservice.dart)
+  static Duration timeAlarmMinSinceStart = const Duration(seconds: 30);
   static final TrackingService _instance = TrackingService._internal(); // Singleton
   factory TrackingService() => _instance; // Factory returns singleton
   TrackingService._internal(); // Private ctor
@@ -113,12 +115,8 @@ class TrackingService { // Foreground facade controlling background tracking ser
       'useInjectedPositions': useInjectedPositions,
     };
     if (isTestMode) { // In tests, run the background logic inline
-      try {
-        // In demo, allow real notifications even in test mode
-        // ignore: invalid_use_of_visible_for_testing_member
-        NotificationService.isTestMode = !allowNotificationsInTest; // Flip test-mode for notifications as requested
-      } catch (_) {}
-      // In test mode, we can directly call _onStart with the parameters
+      // Respect external NotificationService.isTestMode; do not flip here.
+      // Directly call background entry point with the provided params.
       _onStart(TestServiceInstance(), initialData: params); // Start inline
       return;
     }
@@ -191,6 +189,7 @@ int _etaSamples = 0; // Count of ETA samples with credible movement
 bool _timeAlarmEligible = false; // Gate for time-based alarms
 
 // --- NEW STATE VARIABLES FOR ALARM LOGIC ---
+LatLng? _origin; // Starting location for progress fallback in event alarms
 LatLng? _destination; // Target destination
 String? _destinationName; // Name for notifications
 String? _alarmMode; // 'distance' | 'time' | 'stops'
@@ -342,13 +341,21 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
 
   // Also check upcoming route events (transfer/mode change) with the same threshold semantics
   if (_routeEvents.isNotEmpty) {
-    // We need progressMeters along the active route; use authoritative manager state when available.
+    // We need progressMeters along the active route; prefer manager state, fallback to origin→current distance.
     try {
       double? progressMeters = _lastActiveState?.progressMeters;
-      // Legacy proximity fallback, only if state is momentarily unavailable
-      if (progressMeters == null && _lastProcessedPosition != null) {
-        final near = _registry.candidatesNear(_lastProcessedPosition!, radiusMeters: 5000, maxCandidates: 1);
-        if (near.isNotEmpty) progressMeters = near.first.lastProgressMeters;
+      if ((progressMeters == null || progressMeters.isNaN) && _origin != null && _destination != null) {
+        final total = Geolocator.distanceBetween(
+          _origin!.latitude, _origin!.longitude,
+          _destination!.latitude, _destination!.longitude,
+        );
+        final covered = Geolocator.distanceBetween(
+          _origin!.latitude, _origin!.longitude,
+          currentPosition.latitude, currentPosition.longitude,
+        );
+        final approx = covered.clamp(0.0, total);
+        // Use max to avoid progress regressions compared to manager state
+        progressMeters = approx;
       }
       if (progressMeters != null) {
         final thresholdMeters = _alarmMode == 'distance' ? (_alarmValue! * 1000.0) : null;
@@ -924,6 +931,7 @@ Future<void> startLocationStream(ServiceInstance service) async { // Start and m
       }
       if (_startPosition == null) {
         _startPosition = _lastProcessedPosition;
+        _origin = _startPosition; // Capture origin for event-progress fallback
       }
       if (_startPosition != null && _lastProcessedPosition != null) {
         final d = Geolocator.distanceBetween(
@@ -959,9 +967,20 @@ Future<void> startLocationStream(ServiceInstance service) async { // Start and m
       _activeManager!.ingestPosition(raw); // Snap + progress update
     }
 
+    // Evaluate time-alarm eligibility before alarm checks so current update can trigger
+    try {
+      if (_alarmMode == 'time' && !_timeAlarmEligible) {
+        final sinceStart = _startedAt != null ? DateTime.now().difference(_startedAt!) : Duration.zero;
+        if (_distanceTravelledMeters >= 100.0 && _etaSamples >= 3 && sinceStart >= TrackingService.timeAlarmMinSinceStart) {
+          _timeAlarmEligible = true;
+          dev.log('Time alarm is now eligible (live update)', name: 'TrackingService');
+        }
+      }
+    } catch (_) {}
+
     // --- CHECK THE ALARM CONDITION ON EVERY UPDATE ---
-  // ignore: discarded_futures
-  _checkAndTriggerAlarm(position, service);
+    // ignore: discarded_futures
+    _checkAndTriggerAlarm(position, service);
 
     service.invoke("updateLocation", {
       "latitude": position.latitude,
@@ -993,8 +1012,8 @@ Future<void> startLocationStream(ServiceInstance service) async { // Start and m
     try {
       if (_alarmMode == 'time' && !_timeAlarmEligible) {
         final sinceStart = _startedAt != null ? DateTime.now().difference(_startedAt!) : Duration.zero;
-        // Eligible after: moved >= 100m AND at least 3 ETA samples with speed >=0.5 m/s AND 30s since start
-        if (_distanceTravelledMeters >= 100.0 && _etaSamples >= 3 && sinceStart.inSeconds >= 30) {
+        // Eligible after: moved >= 100m AND at least 3 ETA samples with speed >=0.5 m/s AND min time since start
+        if (_distanceTravelledMeters >= 100.0 && _etaSamples >= 3 && sinceStart >= TrackingService.timeAlarmMinSinceStart) {
           _timeAlarmEligible = true;
           dev.log('Time alarm is now eligible', name: 'TrackingService');
         }

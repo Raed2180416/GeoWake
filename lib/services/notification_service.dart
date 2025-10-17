@@ -1,5 +1,9 @@
 // lib/services/notification_service.dart
 
+import 'dart:async';
+import 'dart:ui';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';  // For MethodChannel
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -9,6 +13,7 @@ import 'package:geowake2/screens/alarm_fullscreen.dart';
 import 'package:geowake2/services/alarm_player.dart';
 import 'package:geowake2/services/trackingservice.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:developer' as dev;
 
@@ -30,10 +35,32 @@ class NotificationService {
 
   // Method channel to communicate with native Android code
   static const _alarmMethodChannel = MethodChannel('com.example.geowake2/alarm');
+  static bool _nativeCallbacksRegistered = false;
+
+  @visibleForTesting
+  static Future<dynamic> Function(String method, Map<String, dynamic>? arguments)?
+      debugMethodChannelInvoker;
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
   static const int _alarmNotificationId = 0;
   static const int _progressNotificationId = 888;
+  static const String _progressPrefsKey = 'gw_progress_payload_v1';
+  static const String _batteryPromptKey = 'gw_battery_prompt_v1';
+  static Map<String, dynamic>? _lastProgressPayload;
+
+  Map<String, dynamic>? get lastProgressPayload => _lastProgressPayload;
+
+  void _openTrackingScreen() {
+    final nav = NavigationService.navigatorKey.currentState;
+    if (nav != null) {
+      nav.pushNamed('/mapTracking');
+    } else {
+      // Persist flag for bootstrap to consume on next launch
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setBool('pending_tracking_launch', true);
+      }).catchError((_) {});
+    }
+  }
   
   // Native method to directly launch the AlarmActivity
   Future<void> _launchNativeAlarmActivity({
@@ -59,6 +86,15 @@ class NotificationService {
       await _alarmMethodChannel.invokeMethod('stopVibration');
     } catch (e) {
       dev.log('Failed to stop vibration: $e', name: 'NotificationService');
+    }
+  }
+
+  // Native endTracking fallback
+  Future<void> endTrackingNativeFallback() async {
+    try {
+      await _alarmMethodChannel.invokeMethod('endTracking');
+    } catch (e) {
+      dev.log('Failed to invoke native endTracking: $e', name: 'NotificationService');
     }
   }
 
@@ -97,8 +133,19 @@ class NotificationService {
           return;
         }
         if (response.actionId == 'END_TRACKING') {
-          try { await AlarmPlayer.stop(); } catch (_) {}
-          try { await TrackingService().stopTracking(); } catch (_) {}
+          // Delegate to native Android handler for reliability
+          dev.log('END_TRACKING action - delegating to native handler', name: 'NotificationService');
+          try { await _alarmMethodChannel.invokeMethod('handleEndTracking'); } catch (_) {}
+          return;
+        }
+        if (response.actionId == 'IGNORE_TRACKING') {
+          // Delegate to native Android handler for reliability
+          dev.log('IGNORE_TRACKING action - delegating to native handler', name: 'NotificationService');
+          try { await _alarmMethodChannel.invokeMethod('handleIgnoreTracking'); } catch (_) {}
+          return;
+        }
+        if ((response.actionId == null || response.actionId!.isEmpty) && response.payload == 'open_tracking') {
+          _openTrackingScreen();
           return;
         }
         if (response.payload != null && response.payload!.startsWith('open_alarm')) {
@@ -161,6 +208,11 @@ class NotificationService {
     }
 
     dev.log('NotificationService.initialize() done', name: 'NotificationService');
+
+    if (!_nativeCallbacksRegistered) {
+      _alarmMethodChannel.setMethodCallHandler(_handleNativeMethodCall);
+      _nativeCallbacksRegistered = true;
+    }
   }
 
   // This is the main function to trigger the alarm
@@ -318,43 +370,309 @@ class NotificationService {
     required String subtitle,
     required double progress0to1,
   }) async {
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'geowake_tracking_channel_v2',
-      'GeoWake Tracking',
-      channelDescription: 'Ongoing tracking status',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-      ongoing: true,
-      autoCancel: false,
-      showProgress: true,
-      maxProgress: 1000,
-      progress: (progress0to1.clamp(0.0, 1.0) * 1000).round(),
-      onlyAlertOnce: true,
-      visibility: NotificationVisibility.public,
-    );
-    final NotificationDetails details = NotificationDetails(android: androidDetails);
-    try {
-      dev.log('Updating progress notification: progress=${(progress0to1 * 100).toStringAsFixed(1)}%', name: 'NotificationService');
-      await _notificationsPlugin.show(
-        _progressNotificationId,
-        title,
-        subtitle,
-        details,
-      );
-    } catch (e) {
-      dev.log('Failed to show progress notification: $e', name: 'NotificationService');
+    final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
+    if (suppressed) {
+      // If user chose ignore, ensure any existing notification is cancelled so it slides away.
+      try { await cancelJourneyProgress(); } catch (_) {}
+      return;
     }
+    
+    // First, ensure we have the Android notification actions properly configured
+    // by calling the native decorateProgressNotification which includes the action buttons
+    try {
+      await _alarmMethodChannel.invokeMethod('decorateProgressNotification', {
+        'title': title,
+        'subtitle': subtitle,
+        'progress': progress0to1,
+      });
+      unawaited(scheduleProgressWakeFallback());
+    } catch (e) {
+      dev.log('Native decorateProgressNotification failed: $e', name: 'NotificationService');
+    }
+    
+    // Persist the payload for recovery after process death or app backgrounding
+    final payload = <String, dynamic>{
+      'title': title,
+      'subtitle': subtitle,
+      'progress': progress0to1,
+      'ts': DateTime.now().toIso8601String(),
+    };
+    _lastProgressPayload = payload;
+    if (!isTestMode) {
+      await _persistProgressPayload(payload);
+    }
+  }
+
+  Future<dynamic> _invokeAlarmChannel(String method, Map<String, dynamic>? arguments) async {
+    if (debugMethodChannelInvoker != null) {
+      return debugMethodChannelInvoker!(method, arguments);
+    }
+    return _alarmMethodChannel.invokeMethod(method, arguments);
+  }
+
+  Future<bool> _handleNativeMethodCall(MethodCall call) async {
+    try {
+      switch (call.method) {
+        case 'nativeEndTrackingTriggered':
+          await _handleNativeEndTracking(call.arguments);
+          return true;
+        case 'nativeIgnoreTrackingTriggered':
+          await _handleNativeIgnoreTracking(call.arguments);
+          return true;
+        default:
+          dev.log('Unknown native callback: ${call.method}', name: 'NotificationService');
+          return false;
+      }
+    } catch (e, st) {
+      dev.log('Error handling native method ${call.method}: $e', name: 'NotificationService', error: e, stackTrace: st);
+      return false;
+    }
+  }
+
+  Future<void> _handleNativeEndTracking(dynamic arguments) async {
+    final source = (arguments is Map) ? (arguments['source'] as String? ?? 'unknown') : 'unknown';
+    dev.log('Native END_TRACKING received (source=$source)', name: 'NotificationService');
+    try {
+      await TrackingService().handleNativeEndTrackingFromNotification(source: source);
+      await _navigateHomeAfterEndTracking();
+    } finally {
+      try {
+        await _invokeAlarmChannel('acknowledgeNativeEndTracking', {'source': source});
+      } catch (e) {
+        dev.log('End tracking ack failed: $e', name: 'NotificationService');
+      }
+    }
+  }
+
+  Future<void> _handleNativeIgnoreTracking(dynamic arguments) async {
+    final source = (arguments is Map) ? (arguments['source'] as String? ?? 'unknown') : 'unknown';
+    dev.log('Native IGNORE_TRACKING received (source=$source)', name: 'NotificationService');
+    try {
+      await TrackingService.handleNativeIgnoreTrackingFromNotification(source: source);
+    } finally {
+      try {
+        await _invokeAlarmChannel('acknowledgeNativeIgnoreTracking', {'source': source});
+      } catch (e) {
+        dev.log('Ignore tracking ack failed: $e', name: 'NotificationService');
+      }
+    }
+  }
+
+  Future<void> _navigateHomeAfterEndTracking() async {
+    final nav = NavigationService.navigatorKey.currentState;
+    if (nav == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('pending_home_after_stop', true);
+      } catch (_) {}
+      return;
+    }
+    if (!nav.mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _navigateHomeAfterEndTracking());
+      return;
+    }
+    final currentRoute = ModalRoute.of(nav.context)?.settings.name;
+    if (currentRoute != null && currentRoute != '/mapTracking') {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final navState = NavigationService.navigatorKey.currentState;
+      if (navState == null || !navState.mounted) {
+        return;
+      }
+      final routeName = ModalRoute.of(navState.context)?.settings.name;
+      if (routeName != null && routeName != '/mapTracking') {
+        return;
+      }
+      navState.pushNamedAndRemoveUntil('/', (route) => false);
+    });
+  }
+
+  @visibleForTesting
+  Future<void> debugHandleNativeCallback(String method, dynamic arguments) async {
+    await _handleNativeMethodCall(MethodCall(method, arguments));
   }
 
   Future<void> cancelJourneyProgress() async {
     if (isTestMode) return;
-    await _notificationsPlugin.cancel(_progressNotificationId);
+    // Cancel both the flutter_local_notifications version and the native version
+    try {
+      await _notificationsPlugin.cancel(_progressNotificationId);
+    } catch (e) {
+      dev.log('Flutter plugin cancel failed: $e', name: 'NotificationService');
+    }
+    // Also cancel via native method channel to ensure the native notification is cleared
+    try {
+      await _alarmMethodChannel.invokeMethod('cancelProgressNotification');
+    } catch (e) {
+      dev.log('Native cancel failed: $e', name: 'NotificationService');
+    }
+    _lastProgressPayload = null;
+    await _clearPersistedProgressPayload();
+  }
+
+  Future<void> restoreJourneyProgressIfNeeded() async {
+    final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
+    if (suppressed) {
+      return;
+    }
+    Map<String, dynamic>? payload = _lastProgressPayload;
+    if (payload == null) {
+      payload = await _loadPersistedProgressPayload();
+      if (payload != null) {
+        _lastProgressPayload = payload;
+      }
+    }
+    if (payload == null) {
+      return;
+    }
+    final title = payload['title'] as String?;
+    final subtitle = payload['subtitle'] as String?;
+    final progress = payload['progress'] as num?;
+    if (title == null || subtitle == null || progress == null) {
+      return;
+    }
+    await showJourneyProgress(
+      title: title,
+      subtitle: subtitle,
+      progress0to1: progress.toDouble(),
+    );
+  }
+
+  Future<void> persistProgressSnapshot({
+    required String title,
+    required String subtitle,
+    required double progress,
+    DateTime? timestamp,
+  }) async {
+    final payload = <String, dynamic>{
+      'title': title,
+      'subtitle': subtitle,
+      'progress': progress,
+      'ts': (timestamp ?? DateTime.now()).toIso8601String(),
+    };
+    _lastProgressPayload = payload;
+    if (!isTestMode) {
+      await _persistProgressPayload(payload);
+    }
+  }
+
+  Future<bool> ensureProgressNotificationPresent() async {
+    if (isTestMode) return true;
+    final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
+    if (suppressed) {
+      return true;
+    }
+    try {
+      final androidImpl = _notificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      final active = await androidImpl?.getActiveNotifications();
+      final exists = active?.any((n) => n.id == _progressNotificationId) ?? false;
+      if (!exists && _lastProgressPayload != null) {
+        final payload = _lastProgressPayload!;
+        final title = payload['title'] as String? ?? 'GeoWake journey';
+        final subtitle = payload['subtitle'] as String? ?? '';
+        final progress = (payload['progress'] as num?)?.toDouble() ?? 0.0;
+        await showJourneyProgress(title: title, subtitle: subtitle, progress0to1: progress);
+        return false;
+      }
+      return exists;
+    } catch (e) {
+      dev.log('ensureProgressNotificationPresent failed: $e', name: 'NotificationService');
+      return false;
+    }
+  }
+
+  Future<void> scheduleProgressWakeFallback({Duration interval = const Duration(seconds: 45)}) async {
+    if (isTestMode) return;
+    try {
+      await _alarmMethodChannel.invokeMethod('scheduleProgressWake', {
+        'intervalMs': interval.inMilliseconds,
+      });
+    } catch (e) {
+      dev.log('Failed to schedule progress wake: $e', name: 'NotificationService');
+    }
+  }
+
+  Future<void> cancelProgressWakeFallback() async {
+    if (isTestMode) return;
+    try {
+      await _alarmMethodChannel.invokeMethod('cancelProgressWake');
+    } catch (e) {
+      dev.log('Failed to cancel progress wake: $e', name: 'NotificationService');
+    }
+  }
+
+  Future<void> maybePromptBatteryOptimization() async {
+    if (isTestMode) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final alreadyPrompted = prefs.getBool(_batteryPromptKey) ?? false;
+      if (alreadyPrompted) return;
+      final shouldPrompt = await _alarmMethodChannel.invokeMethod<bool>('shouldPromptBatteryOptimization') ?? false;
+      if (!shouldPrompt) {
+        await prefs.setBool(_batteryPromptKey, true);
+        return;
+      }
+      final didPrompt = await _alarmMethodChannel.invokeMethod<bool>('requestBatteryOptimizationPrompt') ?? false;
+      if (didPrompt) {
+        await prefs.setBool(_batteryPromptKey, true);
+      }
+    } catch (e) {
+      dev.log('Battery optimization prompt failed: $e', name: 'NotificationService');
+    }
+  }
+
+  Future<void> _persistProgressPayload(Map<String, dynamic> payload) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_progressPrefsKey, jsonEncode(payload));
+    } catch (e) {
+      dev.log('Persist progress payload failed: $e', name: 'NotificationService');
+    }
+  }
+
+  Future<Map<String, dynamic>?> _loadPersistedProgressPayload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_progressPrefsKey);
+      if (raw == null) {
+        return null;
+      }
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      return decoded is Map ? decoded.map((key, value) => MapEntry(key.toString(), value)) : null;
+    } catch (e) {
+      dev.log('Load progress payload failed: $e', name: 'NotificationService');
+      return null;
+    }
+  }
+
+  Future<void> _clearPersistedProgressPayload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_progressPrefsKey);
+    } catch (e) {
+      dev.log('Clear progress payload failed: $e', name: 'NotificationService');
+    }
   }
 
   // When app comes to foreground via full-screen intent, ensure the alarm screen shows
   Future<void> showPendingAlarmScreenIfAny() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final pendingHome = prefs.getBool('pending_home_after_stop') ?? false;
+      if (pendingHome) {
+        await prefs.remove('pending_home_after_stop');
+        await _navigateHomeAfterEndTracking();
+      }
+      final launchTracking = prefs.getBool('pending_tracking_launch') ?? false;
+      if (launchTracking) {
+        await prefs.remove('pending_tracking_launch');
+        _openTrackingScreen();
+      }
       final has = prefs.getBool('pending_alarm_flag') ?? false;
       if (!has) return;
       final title = prefs.getString('pending_alarm_title') ?? 'Wake Up!';
@@ -377,9 +695,11 @@ class NotificationService {
 }
 
 @pragma('vm:entry-point')
+@pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse response) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+    DartPluginRegistrant.ensureInitialized();
   } catch (_) {}
   dev.log('BG notification response: actionId=${response.actionId}, payload=${response.payload}', name: 'NotificationService');
   if (response.actionId == 'STOP_ALARM') {
@@ -388,8 +708,28 @@ void notificationTapBackground(NotificationResponse response) async {
     return;
   }
   if (response.actionId == 'END_TRACKING') {
-    try { await AlarmPlayer.stop(); } catch (_) {}
-    try { await TrackingService().stopTracking(); } catch (_) {}
+    // Delegate to native Android handler for reliability
+    dev.log('BG: END_TRACKING action - delegating to native handler', name: 'NotificationService');
+    try { 
+      const channel = MethodChannel('com.example.geowake2/alarm');
+      await channel.invokeMethod('handleEndTracking'); 
+    } catch (_) {}
+    return;
+  }
+  if (response.actionId == 'IGNORE_TRACKING') {
+    // Delegate to native Android handler for reliability
+    dev.log('BG: IGNORE_TRACKING action - delegating to native handler', name: 'NotificationService');
+    try { 
+      const channel = MethodChannel('com.example.geowake2/alarm');
+      await channel.invokeMethod('handleIgnoreTracking'); 
+    } catch (_) {}
+    return;
+  }
+  if ((response.actionId == null || response.actionId!.isEmpty) && response.payload == 'open_tracking') {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('pending_tracking_launch', true);
+    } catch (_) {}
     return;
   }
 }

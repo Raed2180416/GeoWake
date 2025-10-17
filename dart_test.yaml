@@ -1,0 +1,5 @@
+concurrency: 1
+
+tags:
+  serial:
+    description: Tests that must run serially (no special behavior configured).

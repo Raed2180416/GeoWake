@@ -63,7 +63,21 @@
 
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:stopWithTask="false"
             android:foregroundServiceType="location" />
+
+        <receiver
+            android:name=".ProgressWakeReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.geowake2.ACTION_END_TRACKING" />
+                <action android:name="com.example.geowake2.ACTION_IGNORE_TRACKING" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

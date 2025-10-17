@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'homescreen.dart'; // Replace with your actual main screen if different
+import '../services/bootstrap_service.dart';
+import '../services/navigation_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -15,7 +16,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   late AnimationController ringController;
   late AnimationController textController;
   Timer? _textTimer;
-  Timer? _navTimer;
+  Timer? _fallbackNavTimer;
+  StreamSubscription? _bootSub;
   
   @override
   void initState() {
@@ -39,19 +41,38 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       textController.forward();
     });
 
-    // Navigate to the HomeScreen after 3 seconds.
-    _navTimer = Timer(const Duration(seconds: 3), () {
+    // Listen to bootstrap phases for early navigation
+    _bootSub = BootstrapService.I.states.listen((s) {
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
+      if (s.phase == BootstrapPhase.ready) {
+        final nav = NavigationService.navigatorKey.currentState;
+        if (nav == null) return;
+        final target = s.targetRoute ?? '/';
+        if (target == '/mapTracking') {
+          debugPrint('GW_NAV_SPLASH_BOOT_READY mapTracking');
+          nav.pushNamedAndRemoveUntil('/mapTracking', (r) => false, arguments: s.mapTrackingArgs);
+        } else {
+          debugPrint('GW_NAV_SPLASH_BOOT_READY home');
+          nav.pushNamedAndRemoveUntil('/', (r) => false);
+        }
+      }
+    });
+    // Fallback after 7s if bootstrap never reports ready
+    _fallbackNavTimer = Timer(const Duration(seconds: 7), () {
+      if (!mounted) return;
+      final nav = NavigationService.navigatorKey.currentState;
+      if (nav != null) {
+        debugPrint('GW_NAV_SPLASH_FALLBACK_TIMEOUT');
+        nav.pushNamedAndRemoveUntil('/', (r) => false);
+      }
     });
   }
   
   @override
   void dispose() {
     _textTimer?.cancel();
-    _navTimer?.cancel();
+    _fallbackNavTimer?.cancel();
+    _bootSub?.cancel();
     ringController.dispose();
     textController.dispose();
     super.dispose();

@@ -10,6 +10,7 @@ import 'package:geowake2/services/places_service.dart';
 import 'package:geowake2/services/metro_stop_service.dart';
 import 'settingsdrawer.dart';
 import 'package:geowake2/services/trackingservice.dart';
+import 'package:geowake2/services/persistence/tracking_session_state.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -383,7 +384,28 @@ class HomeScreenState extends State<HomeScreen> {
       }
 
       final directions = await _fetchDirections(userLat, userLng, destLat, destLng);
-      final initialETA = directions['routes'][0]['legs'][0]['duration']['value'] as int;
+      int initialETA = 0;
+      try {
+        final routes = (directions['routes'] as List?) ?? const [];
+        if (routes.isNotEmpty) {
+          final leg = ((routes.first as Map)['legs'] as List?)?.first as Map?;
+          final val = (leg?['duration'] as Map?)?['value'] as num?;
+          final traf = (leg?['duration_in_traffic'] as Map?)?['value'] as num?;
+          if (traf != null) initialETA = traf.toInt();
+          else if (val != null) initialETA = val.toInt();
+          else {
+            final txt = (leg?['duration'] as Map?)?['text'] as String?;
+            if (txt != null) {
+              final h = RegExp(r'(\d+(?:\.\d+)?)\s*h').firstMatch(txt.toLowerCase());
+              final m = RegExp(r'(\d+(?:\.\d+)?)\s*min').firstMatch(txt.toLowerCase());
+              double sec = 0;
+              if (h != null) sec += double.parse(h.group(1)!) * 3600.0;
+              if (m != null) sec += double.parse(m.group(1)!) * 60.0;
+              initialETA = sec.round();
+            }
+          }
+        }
+      } catch (_) {}
       
       final trackingService = TrackingService();
       // Register this route so ActiveRouteManager can snap/switch
@@ -431,7 +453,7 @@ class HomeScreenState extends State<HomeScreen> {
       };
 
       if (!context.mounted) return;
-      Navigator.pushReplacementNamed(context, '/preloadMap', arguments: mapArgs);
+  Navigator.pushReplacementNamed(context, '/preloadMap', arguments: mapArgs);
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -440,6 +462,13 @@ class HomeScreenState extends State<HomeScreen> {
 
     } catch (e) {
       dev.log("Error in _proceedWithDirections: $e", name: "HomeScreen");
+      // Provide richer diagnostics if available
+      try {
+        final body = ApiClient.lastDirectionsBody;
+        if (body != null) {
+          dev.log('Last directions body snapshot: ${body.toString()}', name: 'HomeScreen');
+        }
+      } catch (_) {}
       if(mounted) {
          _showErrorDialog("Route Error", "Could not calculate the route. Please try again.");
          setState(() {
@@ -558,6 +587,56 @@ class HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                FutureBuilder<Map<String, dynamic>?>(
+                  future: TrackingSessionStateFile.load(),
+                  builder: (context, snapshot) {
+                    final session = snapshot.data;
+                    final canResume = session != null && !TrackingService.trackingActive;
+                    // Rescue auto-resume: if a session exists AND TrackingService.autoResumed was set (meaning main detected it)
+                    // but somehow we are rendering HomeScreen, push user to map.
+                    if (TrackingService.autoResumed && TrackingService.trackingActive) {
+                      // schedule microtask to navigate (avoid setState during build)
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        try {
+                          Navigator.of(context).pushNamedAndRemoveUntil('/mapTracking', (r) => false);
+                        } catch (_) {}
+                      });
+                    }
+                    if (canResume) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.play_arrow),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600),
+                          onPressed: () async {
+                            try {
+                              final lat = (session['destinationLat'] as num?)?.toDouble();
+                              final lng = (session['destinationLng'] as num?)?.toDouble();
+                              if (lat != null && lng != null) {
+                                final destName = session['destinationName'] as String? ?? 'Destination';
+                                final mode = session['alarmMode'] as String? ?? 'distance';
+                                final value = (session['alarmValue'] as num?)?.toDouble() ?? 1.0;
+                                final svc = TrackingService();
+                                await svc.startTracking(
+                                  destination: LatLng(lat, lng),
+                                  destinationName: destName,
+                                  alarmMode: mode,
+                                  alarmValue: value,
+                                );
+                                if (!mounted) return;
+                                Navigator.of(context).pushNamedAndRemoveUntil('/mapTracking', (r) => false);
+                              }
+                            } catch (e) {
+                              dev.log('Resume failed: $e', name: 'HomeScreen');
+                            }
+                          },
+                          label: const Text('Resume Tracking Session'),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
                 if (_noConnectivity)
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),

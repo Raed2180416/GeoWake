@@ -1,7 +1,16 @@
 // Annotated copy of lib/services/active_route_manager.dart
 // Purpose: Explain local route switching with sustain window, blackout, and snapping.
-
-import 'dart:async'; // Streams for state and events
+// Reliability note (2025-09-24):
+// - State emission now strictly reflects the CURRENT ACTIVE route until an actual switch occurs.
+//   This avoids UI "jumps" where snapped/progress/remaining were temporarily computed from a
+//   candidate route before switch confirmation. Pending switch info is exposed ONLY via
+//   `pendingSwitchToKey` + `pendingSwitchInSeconds` to inform the UI without mutating core metrics.
+  // Emission policy: We emit `ActiveRouteState` based on the current active route's snap.
+  // If a switch occurs within the same `ingestPosition` call (after sustain elapses), we
+  // recompute snapping against the new active route before emitting state, avoiding any
+  // mixed-route progress/remaining artifacts at the moment of switch. Pending switch
+  // countdown and key are exposed only while sustaining and never during blackout.
+import 'dart:async';
 import 'package:google_maps_flutter/google_maps_flutter.dart'; // LatLng type for GPS
 import 'package:geowake2/services/route_registry.dart'; // Route entries and state
 import 'package:geowake2/services/snap_to_route.dart'; // Snapping engine and result
@@ -83,9 +92,8 @@ class ActiveRouteManager {
 
     // 2) Look for nearby route candidates and evaluate offset advantage
     final candidates = registry.candidatesNear(rawPosition, radiusMeters: 1200, maxCandidates: 3);
-    String bestKey = active.key;
-    double bestOffset = snapActive.lateralOffsetMeters;
-    SnapResult bestSnap = snapActive;
+  String bestKey = active.key;
+  double bestOffset = snapActive.lateralOffsetMeters;
 
     for (final c in candidates) {
       final s = c.key == active.key ? snapActive : _snapTo(c, rawPosition);
@@ -94,7 +102,6 @@ class ActiveRouteManager {
         final agree = _headingAgreement(c, s);
         if (agree > 0.3) {
           bestOffset = s.lateralOffsetMeters;
-          bestSnap = s;
           bestKey = c.key;
         }
       }
@@ -129,10 +136,11 @@ class ActiveRouteManager {
       _candidateTimer = null;
     }
 
-    // 4) Emit state snapshot with pending-switch countdown (if any)
-    final activeEntry = registry.entries.firstWhere((e) => e.key == _activeKey);
-    final progress = bestKey == active.key ? snapActive.progressMeters : bestSnap.progressMeters;
-    final remaining = (activeEntry.lengthMeters - progress).clamp(0.0, double.infinity);
+  // 4) Emit state snapshot with pending-switch countdown (if any)
+  // IMPORTANT: Emissions use the active route's snap/progress until a switch is actually performed.
+  final activeEntry = registry.entries.firstWhere((e) => e.key == _activeKey);
+  final progress = snapActive.progressMeters; // active-only progress to keep UI consistent pre-switch
+  final remaining = (activeEntry.lengthMeters - progress).clamp(0.0, double.infinity);
     double? pendingSecs;
     String? pendingKey;
     final inBlackout2 = _blackoutTimer != null && _blackoutTimer!.isRunning && _blackoutTimer!.elapsed < postSwitchBlackout;
@@ -147,8 +155,9 @@ class ActiveRouteManager {
 
     _stateCtrl.add(ActiveRouteState(
       activeKey: _activeKey!,
-      snapped: bestKey == active.key ? snapActive.snappedPoint : bestSnap.snappedPoint,
-      offsetMeters: bestKey == active.key ? snapActive.lateralOffsetMeters : bestSnap.lateralOffsetMeters,
+  // active-only emission pre-switch; candidates do not alter these fields
+  snapped: snapActive.snappedPoint,
+  offsetMeters: snapActive.lateralOffsetMeters,
       progressMeters: progress,
       remainingMeters: remaining,
       pendingSwitchToKey: pendingKey,
