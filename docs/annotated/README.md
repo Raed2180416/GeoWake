@@ -2,6 +2,10 @@
 
 This index links to the fully annotated, beginner-clear walkthrough files. These live under `docs/annotated/` and do not affect runtime.
 
+## Core Application
+- `docs/annotated/main.annotated.dart` - Application entry point, initialization, and lifecycle
+- `docs/annotated/models/route_models.annotated.dart` - Core data structures for routes and transit
+
 ## Screens
 - `docs/annotated/screens/splash_screen.annotated.dart`
 - `docs/annotated/screens/homescreen.annotated.dart`
@@ -40,5 +44,13 @@ This index links to the fully annotated, beginner-clear walkthrough files. These
 ## Config
 - `docs/annotated/config/app_config.annotated.dart`
 - `docs/annotated/config/power_policy.annotated.dart`
+
+## UI Components
+- `docs/annotated/themes/appthemes.annotated.dart` - Light and dark theme definitions
+- `docs/annotated/widgets/pulsing_dots.annotated.dart` - Animated loading indicator
+
+## Debug/Development Tools
+- `docs/annotated/debug/demo_tools.annotated.dart` - Demo journey simulation and alarm testing
+- `docs/annotated/debug/dev_server.annotated.dart` - HTTP server for remote demo control
 
 If you spot a missing module or want a deeper dive in a particular area, open the corresponding file in this folder. Each file includes per-line notes, block summaries, and an end-of-file overview.
