@@ -123,6 +123,22 @@ class NotificationService {
       iOS: iosSettings,
     );
 
+    // Request full-screen intent permission on Android 14+ (API 34+)
+    // This is critical for alarms to work on locked screens
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final androidImpl = _notificationsPlugin
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        if (androidImpl != null) {
+          // Request permission to show full-screen intents (Android 14+)
+          final granted = await androidImpl.requestFullScreenIntentPermission();
+          dev.log('Full screen intent permission: ${granted ?? false}', name: 'NotificationService');
+        }
+      } catch (e) {
+        dev.log('Failed to request full screen intent permission: $e', name: 'NotificationService');
+      }
+    }
+
     await _notificationsPlugin.initialize(
       settings,
       onDidReceiveNotificationResponse: (response) async {
