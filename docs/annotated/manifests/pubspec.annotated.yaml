@@ -1,0 +1,546 @@
+# Annotated copy of pubspec.yaml
+# Purpose: Flutter project configuration and dependency management.
+# This file defines the project metadata, dependencies, assets, and build configuration.
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PROJECT METADATA
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: geowake2
+# Project package name - must be lowercase with underscores only
+# Used as:
+#   - Dart package identifier (import 'package:geowake2/...')
+#   - Android package name component
+#   - iOS bundle identifier component
+# "2" suffix likely indicates this is a rewrite/major version of original GeoWake
+
+description: "A new Flutter project."
+# Human-readable project description
+# TODO: Update this to actual description:
+#   "Location-based alarm app that wakes you before your destination"
+# Used in:
+#   - Package repository listings
+#   - App store metadata (if different from store description)
+#   - Documentation generation
+
+publish_to: 'none'
+# Disables publishing to pub.dev (Dart package repository)
+# 'none' = private app, not a public package
+# Remove this line if you want to publish as a reusable package
+# GeoWake is an end-user app, not a library, so publishing is disabled
+
+version: 1.0.0+1
+# Version number in format: MAJOR.MINOR.PATCH+BUILD
+# 1.0.0 = semantic version (major.minor.patch)
+#   - MAJOR: breaking changes (1.0.0 → 2.0.0)
+#   - MINOR: new features, backward compatible (1.0.0 → 1.1.0)
+#   - PATCH: bug fixes, backward compatible (1.0.0 → 1.0.1)
+# +1 = build number (increments with each release)
+#   - Used by app stores to identify which release is newer
+#   - Must always increase (1, 2, 3, 4, ...)
+#   - Android: versionCode
+#   - iOS: CFBundleVersion
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT CONSTRAINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+environment:
+  # For Flutter 3.7 or higher:
+  sdk: '>=3.7.0 <4.0.0'
+  # Dart SDK version range required
+  # >=3.7.0: minimum version (requires Dart 3.7 features)
+  #   - Dart 3.7 introduced: better null safety, pattern matching improvements
+  # <4.0.0: upper bound (exclude Dart 4.x which might have breaking changes)
+  # This constrains both:
+  #   - Flutter SDK version (each Flutter version bundles specific Dart version)
+  #   - Dart language features available in code
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RUNTIME DEPENDENCIES
+# ═══════════════════════════════════════════════════════════════════════════
+# These packages are bundled with the app and available at runtime
+
+dependencies:
+  # ─────────────────────────────────────────────────────────────────────────
+  # FLUTTER CORE
+  # ─────────────────────────────────────────────────────────────────────────
+  flutter:
+    sdk: flutter
+  # Flutter framework itself (UI toolkit, widgets, rendering)
+  # sdk: flutter = use version bundled with Flutter SDK (not from pub.dev)
+  # Always required for Flutter apps
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # STORAGE & PERSISTENCE
+  # ─────────────────────────────────────────────────────────────────────────
+  path_provider: ^2.1.1
+  # Platform-specific directory paths (documents, temp, app data)
+  # Used by: Hive for database location
+  # ^ (caret) = compatible versions (2.1.1 → 2.x.x, not 3.0.0)
+  
+  shared_preferences: ^2.2.3
+  # Key-value storage (similar to UserDefaults/SharedPreferences)
+  # Simpler than Hive for basic settings
+  # Could be used for: theme preference, onboarding completion flag
+  
+  hive: ^2.2.3
+  # Fast, lightweight NoSQL database
+  # Used by: RouteCache, RecentLocationsService
+  # Stores: cached routes, location history
+  
+  hive_flutter: ^1.1.0
+  # Flutter-specific Hive utilities
+  # Provides: initFlutter() for automatic path setup
+  # Required for: Hive initialization in Flutter apps
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # NOTIFICATIONS & ALARMS
+  # ─────────────────────────────────────────────────────────────────────────
+  flutter_local_notifications: ^19.0.0
+  # Local notification display (no server required)
+  # Used by: NotificationService
+  # Features:
+  #   - Notification channels (Android)
+  #   - Full-screen intents (alarm display)
+  #   - Custom sounds
+  #   - Notification actions (buttons)
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # LOCATION & TRACKING
+  # ─────────────────────────────────────────────────────────────────────────
+  geolocator: ^14.0.0
+  # GPS location access and distance calculations
+  # Used by: TrackingService, deviation detection
+  # Features:
+  #   - Position stream (continuous GPS updates)
+  #   - Distance calculation (Haversine formula)
+  #   - Location permission handling
+  #   - Location settings (GPS enabled check)
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # BACKGROUND PROCESSING
+  # ─────────────────────────────────────────────────────────────────────────
+  flutter_background_service: ^5.0.5
+  # Run Dart code in background isolate
+  # Used by: TrackingService for continuous location monitoring
+  # Keeps: app running even when screen is off or app is closed
+  # Critical for: alarm triggering when app is backgrounded
+  
+  flutter_background_service_android: ^6.2.2
+  # Android-specific background service implementation
+  # Handles: foreground service creation, notification management
+  # Required for: Android 8+ background execution
+  # Note: Version mismatch with base package (5.0.5 vs 6.2.2) - potential issue
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DEVICE INFORMATION
+  # ─────────────────────────────────────────────────────────────────────────
+  battery_plus: ^7.0.0
+  # Battery level and charging status
+  # Used by: PowerPolicy for adaptive tracking frequency
+  # Features:
+  #   - Battery percentage
+  #   - Charging state (plugged in, wireless, none)
+  #   - Battery state stream
+  
+  device_info_plus: ^12.1.0
+  # Device hardware and OS information
+  # Used for: platform detection, OS version checks
+  # Data:
+  #   - Android: SDK version, manufacturer, model
+  #   - iOS: iOS version, device model, system name
+  
+  package_info_plus: ^9.0.0
+  # App package information
+  # Used for: version display, build number
+  # Data:
+  #   - App name, package name
+  #   - Version number, build number
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # NETWORKING & CONNECTIVITY
+  # ─────────────────────────────────────────────────────────────────────────
+  connectivity_plus: ^7.0.0
+  # Network connectivity monitoring
+  # Used by: ApiClient, DirectionService
+  # Detects:
+  #   - WiFi connection
+  #   - Mobile data connection
+  #   - Connection status changes (stream)
+  # Could be used for: offline mode indicator (HIGH-005 in ISSUES.txt)
+  
+  http: ^1.4.0
+  # HTTP client for REST API calls
+  # Used by: ApiClient for Google Maps API requests
+  # Features:
+  #   - GET, POST, PUT, DELETE requests
+  #   - Headers, query parameters, body
+  #   - Response parsing
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # PERMISSIONS
+  # ─────────────────────────────────────────────────────────────────────────
+  permission_handler: ^12.0.0
+  # Runtime permission requests (location, notifications, etc.)
+  # Used by: main.dart, PermissionService
+  # Handles:
+  #   - Permission status checking
+  #   - Permission requesting
+  #   - App settings navigation
+  
+  app_settings: ^6.1.1
+  # Open platform-specific app settings
+  # Used for: directing users to enable permissions, disable battery optimization
+  # Opens:
+  #   - Android: app info screen, notification settings
+  #   - iOS: app settings page
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # GOOGLE SERVICES
+  # ─────────────────────────────────────────────────────────────────────────
+  google_maps_flutter: ^2.2.5
+  # Google Maps widget for Flutter
+  # Used by: MapTrackingScreen
+  # Features:
+  #   - Map display
+  #   - Polyline drawing (route visualization)
+  #   - Markers (origin, destination, current location)
+  #   - Camera control (zoom, pan)
+  
+  google_places_flutter: ^2.0.0
+  # Google Places API autocomplete widget
+  # Used by: HomeScreen for location search
+  # Features:
+  #   - Address autocomplete
+  #   - Place details
+  #   - Geocoding
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # MONETIZATION
+  # ─────────────────────────────────────────────────────────────────────────
+  google_mobile_ads: ^6.0.0
+  # Google AdMob integration
+  # Used for: displaying ads (if monetization is enabled)
+  # Ad types:
+  #   - Banner ads
+  #   - Interstitial ads
+  #   - Rewarded ads
+  # Note: Not referenced in annotated code - might be planned feature
+  
+  in_app_purchase: ^3.2.1
+  # In-app purchases (premium features, subscriptions)
+  # Used for: monetization, premium tier
+  # Platforms:
+  #   - Android: Google Play Billing
+  #   - iOS: StoreKit
+  # Note: Not referenced in annotated code - might be planned feature
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # MEDIA & AUDIO
+  # ─────────────────────────────────────────────────────────────────────────
+  audioplayers: ^6.4.0
+  # Audio playback for alarm sounds
+  # Used by: AlarmPlayer
+  # Features:
+  #   - Play local audio files
+  #   - Volume control
+  #   - Looping
+  #   - Play/pause/stop
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # SENSORS
+  # ─────────────────────────────────────────────────────────────────────────
+  sensors_plus: ^7.0.0
+  # Device motion sensors (accelerometer, gyroscope)
+  # Used by: SensorFusion (planned integration - TODO-001)
+  # Sensors:
+  #   - Accelerometer (acceleration)
+  #   - Gyroscope (rotation)
+  #   - Magnetometer (compass)
+  # Use case: Speed estimation when GPS is weak
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # UI & STYLING
+  # ─────────────────────────────────────────────────────────────────────────
+  google_fonts: ^6.2.1
+  # Google Fonts integration
+  # Used by: AppThemes for Montserrat font
+  # Features:
+  #   - 1000+ font families
+  #   - Automatic font downloading and caching
+  
+  cupertino_icons: ^1.0.8
+  # iOS-style icons
+  # Used for: iOS platform-specific UI elements
+  # Fallback: Material icons on Android
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # UTILITIES
+  # ─────────────────────────────────────────────────────────────────────────
+  flutter_dotenv: ^6.0.0
+  # Environment variable loading from .env files
+  # Used for: configuration management (dev/prod environments)
+  # Could store: API keys, server URLs, feature flags
+  # Note: Not used in current code (app_config.dart uses constants)
+  
+  logging: ^1.0.2
+  # Structured logging framework
+  # Alternative to: dev.log(), print()
+  # Features:
+  #   - Log levels (fine, info, warning, severe)
+  #   - Hierarchical loggers
+  #   - Custom log handlers
+  # Note: Not used in current code (uses dev.log())
+  
+  android_intent_plus: ^6.0.0
+  # Launch Android intents
+  # Used for: opening external apps, system activities
+  # Examples:
+  #   - Open Google Maps for navigation
+  #   - Open phone dialer
+  #   - Share content
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DEVELOPMENT DEPENDENCIES
+# ═══════════════════════════════════════════════════════════════════════════
+# These packages are only used during development, not bundled with app
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # Flutter testing framework
+  # Provides: test(), expect(), setUp(), tearDown()
+  # Required for: all test files
+  
+  flutter_lints: ^5.0.0
+  # Recommended linting rules for Flutter
+  # Enforces: code style, best practices, potential bugs
+  # Configured in: analysis_options.yaml
+  
+  integration_test:
+    sdk: flutter
+  # Integration testing framework
+  # Allows: testing full app flows on real devices/emulators
+  # Separate from: unit tests (flutter_test)
+  
+  flutter_native_splash: ^2.3.5
+  # Splash screen generator
+  # Creates: platform-specific splash screens from image
+  # Configured: flutter_native_splash section below
+  
+  flutter_launcher_icons: ^0.14.3
+  # App icon generator
+  # Creates: app icons for all sizes/densities
+  # Configured: flutter_icons section below
+  
+  meta: ^1.12.0
+  # Annotations for static analysis
+  # Provides: @required, @protected, @visibleForTesting
+  # ADDED DEPENDENCY (comment suggests recent addition)
+  # Used for: enhanced static checking
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FLUTTER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+
+flutter:
+  uses-material-design: true
+  # Enable Material Design assets (icons, colors)
+  # Required for: Material icons (Icons.add, Icons.menu, etc.)
+  # Without this: Material icon references would fail
+  
+  assets:
+    # List of asset files to bundle with app
+    # Referenced in code via: AssetImage, rootBundle.loadString, etc.
+    
+    - assets/geowake.png
+    # App logo/icon image
+    # Used by:
+    #   - Splash screen
+    #   - App icon generation
+    #   - About screen (potentially)
+    
+    - assets/ringtones/
+    # Directory of alarm sound files
+    # Used by: AlarmPlayer, RingtonesScreen
+    # Contains: MP3/WAV files for alarm sounds
+    # Trailing slash = include all files in directory
+
+# ─────────────────────────────────────────────────────────────────────────
+# NATIVE SPLASH SCREEN CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────
+flutter_native_splash:
+  # Configuration for flutter_native_splash package
+  
+  color: "#FFFFFF" # Match this with your custom splash background
+  # Splash screen background color
+  # White (#FFFFFF) matches light theme for consistency
+  # Used on: Android <12, iOS
+  
+  image: assets/geowake.png
+  # Splash screen logo image
+  # Centered on colored background
+  # Should be: transparent PNG, reasonable size (512x512 or similar)
+  
+  android_12:
+    # Android 12+ specific splash configuration
+    # Android 12 introduced new splash screen API with different requirements
+    
+    image: assets/geowake.png
+    # Logo for Android 12+ splash
+    # Same as general image for consistency
+    
+    icon_background_color: "#FFFFFF"
+    # Background color for logo
+    # White to match general splash background
+    # Creates: circular background behind logo (Android 12 style)
+
+# ─────────────────────────────────────────────────────────────────────────
+# APP ICON CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────
+flutter_icons:
+  # Configuration for flutter_launcher_icons package
+  
+  android: true
+  # Generate Android app icons
+  # Creates: mipmap resources for all densities (mdpi, hdpi, xhdpi, xxhdpi, xxxhdpi)
+  
+  ios: true
+  # Generate iOS app icons
+  # Creates: AppIcon.appiconset with all required sizes
+  
+  image_path: "assets/geowake.png"
+  # Source image for icon generation
+  # Should be: 1024x1024 PNG with no transparency (iOS requirement)
+  # Will be scaled down to all required sizes
+  
+  adaptive_icon_background: "#FFFFFF"
+  # Android adaptive icon background color
+  # Adaptive icons: Android 8+ feature allowing launcher customization
+  # White background ensures visibility on any launcher theme
+  
+  adaptive_icon_foreground: "assets/geowake.png"
+  # Android adaptive icon foreground image
+  # Should be: transparent PNG with content in safe zone (center 66%)
+  # Launcher: overlays foreground on background with custom shapes/effects
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FILE SUMMARY: pubspec.yaml - Project Configuration and Dependencies
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# This file is the foundation of the Flutter project. It defines:
+#
+# 1. PROJECT IDENTITY:
+#    - Package name: geowake2
+#    - Version: 1.0.0+1 (semantic versioning)
+#    - Description: (needs update to actual description)
+#
+# 2. ENVIRONMENT:
+#    - Dart SDK: 3.7.0 to <4.0.0
+#    - Flutter SDK: implicitly constrained by Dart version
+#
+# 3. DEPENDENCIES (22 runtime packages):
+#    - Core: Flutter framework
+#    - Storage: Hive (NoSQL), SharedPreferences, path_provider
+#    - Notifications: flutter_local_notifications
+#    - Location: geolocator (GPS, distance)
+#    - Background: flutter_background_service
+#    - Maps: google_maps_flutter, google_places_flutter
+#    - Device: battery_plus, device_info_plus, package_info_plus
+#    - Network: http, connectivity_plus
+#    - Permissions: permission_handler, app_settings
+#    - Audio: audioplayers
+#    - Sensors: sensors_plus
+#    - UI: google_fonts, cupertino_icons
+#    - Monetization: google_mobile_ads, in_app_purchase (unused?)
+#    - Utilities: flutter_dotenv, logging, android_intent_plus
+#
+# 4. DEV DEPENDENCIES (6 packages):
+#    - Testing: flutter_test, integration_test
+#    - Quality: flutter_lints, meta
+#    - Assets: flutter_native_splash, flutter_launcher_icons
+#
+# 5. ASSETS:
+#    - App logo: assets/geowake.png
+#    - Ringtones: assets/ringtones/ directory
+#
+# 6. SPLASH SCREEN:
+#    - White background with GeoWake logo
+#    - Android 12+ adaptive splash
+#
+# 7. APP ICONS:
+#    - Generated from assets/geowake.png
+#    - Android adaptive icons with white background
+#
+# DEPENDENCY ANALYSIS:
+#
+# Critical Dependencies (app won't work without):
+# - flutter_background_service: background tracking
+# - geolocator: GPS access
+# - google_maps_flutter: map display
+# - hive: route caching
+# - flutter_local_notifications: alarms
+#
+# Important Dependencies (major features):
+# - google_places_flutter: location search
+# - permission_handler: permission flow
+# - audioplayers: alarm sounds
+#
+# Optional/Unused Dependencies (can be removed?):
+# - google_mobile_ads: no ads in current code
+# - in_app_purchase: no IAP in current code
+# - flutter_dotenv: not using .env files
+# - logging: using dev.log() instead
+#
+# POTENTIAL ISSUES:
+#
+# [MANIFEST-001] Version Mismatch
+# flutter_background_service: ^5.0.5 but
+# flutter_background_service_android: ^6.2.2
+# Major version difference could cause compatibility issues.
+# Fix: Align versions or verify compatibility.
+#
+# [MANIFEST-002] Unused Dependencies
+# google_mobile_ads and in_app_purchase are listed but not used in code.
+# Impact: Increases app size, slower builds.
+# Fix: Remove if truly unused, or implement monetization features.
+#
+# [MANIFEST-003] Outdated Description
+# Description is generic "A new Flutter project."
+# Impact: Poor presentation in documentation, package listings.
+# Fix: Update to actual app description.
+#
+# [MANIFEST-004] No License
+# pubspec.yaml doesn't specify license.
+# Impact: Unclear distribution rights.
+# Fix: Add license field (e.g., license: MIT, BSD-3-Clause, proprietary).
+#
+# [MANIFEST-005] No Author/Homepage
+# Missing author and homepage fields.
+# Impact: Users don't know who to contact or where to find more info.
+# Fix: Add author and homepage (or repository) fields.
+#
+# CONNECTIONS TO CODE:
+#
+# - lib/services/trackingservice.dart: flutter_background_service
+# - lib/services/notification_service.dart: flutter_local_notifications
+# - lib/services/route_cache.dart: hive, hive_flutter
+# - lib/services/direction_service.dart: http
+# - lib/services/alarm_player.dart: audioplayers
+# - lib/screens/maptracking.dart: google_maps_flutter
+# - lib/screens/homescreen.dart: google_places_flutter
+# - lib/themes/appthemes.dart: google_fonts
+# - lib/main.dart: permission_handler
+# - lib/config/power_policy.dart: battery_plus
+# - test/flutter_test_config.dart: hive (dev)
+#
+# DEPENDENCY UPDATE STRATEGY:
+#
+# Weekly: Security patches (patch versions)
+# Monthly: Minor updates (new features, compatible changes)
+# Quarterly: Major updates (breaking changes, requires testing)
+# Always: Check CHANGELOG for breaking changes before updating
+#
+# This file is critical infrastructure - changes here affect the entire project.
+# Test thoroughly after dependency updates, especially major versions.
