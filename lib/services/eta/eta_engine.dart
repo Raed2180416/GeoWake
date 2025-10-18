@@ -58,9 +58,23 @@ class EtaEngine {
     bool onRoute = true,
     bool isTestMode = false,
   }) {
+    // Validate inputs to prevent wild ETA values
+    if (!distanceMeters.isFinite || distanceMeters < 0) {
+      distanceMeters = 0.0;
+    }
+    if (!representativeSpeedMps.isFinite || representativeSpeedMps < 0) {
+      representativeSpeedMps = 0.1; // Minimum speed to prevent division by zero
+    }
+    
     double? rawEta;
-    if (representativeSpeedMps > 0.1 && distanceMeters.isFinite) {
+    if (representativeSpeedMps > 0.1 && distanceMeters.isFinite && distanceMeters > 0) {
       rawEta = distanceMeters / math.max(representativeSpeedMps, 0.1);
+      // Clamp to reasonable values (max 24 hours)
+      if (rawEta > 86400) {
+        rawEta = 86400; // Cap at 24 hours to prevent wild values
+      }
+    } else if (distanceMeters <= 0) {
+      rawEta = 0.0; // Arrived
     }
 
     double? prevSmoothed = _smoothedEta; // keep for smoothing decisions (test snaps)
@@ -68,15 +82,32 @@ class EtaEngine {
       if (_smoothedEta == null) {
         _smoothedEta = rawEta;
       } else {
-        final alpha = isTestMode ? 0.75 : 0.25;
+        // Adaptive alpha based on distance - use more aggressive smoothing when far
+        double alpha;
+        if (isTestMode) {
+          alpha = 0.75;
+        } else if (distanceMeters < 100) {
+          alpha = 0.6; // Very close - respond quickly to changes
+        } else if (distanceMeters < 500) {
+          alpha = 0.4; // Close - moderate responsiveness
+        } else if (distanceMeters < 2000) {
+          alpha = 0.25; // Mid-range - smooth out noise
+        } else {
+          alpha = 0.15; // Far - heavy smoothing
+        }
+        
         _smoothedEta = alpha * rawEta + (1 - alpha) * _smoothedEta!;
-        // In test mode allow forcing raw when large improvement so rapidDrop detection fires.
-  if (isTestMode && prevSmoothed != null) {
+        
+        // In test mode or close proximity, allow forcing raw when large improvement
+        if (isTestMode && prevSmoothed != null) {
           if (prevSmoothed > 0 && rawEta < prevSmoothed && (prevSmoothed - rawEta)/prevSmoothed >= rapidDropFraction) {
             _smoothedEta = rawEta; // snap
           } else if (distanceMeters < 150) {
             _smoothedEta = rawEta;
           }
+        } else if (distanceMeters < 100) {
+          // When very close, snap to raw ETA for accuracy
+          _smoothedEta = rawEta;
         }
       }
       _etaSamples++;

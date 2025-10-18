@@ -92,25 +92,43 @@ class AlarmMethodChannelHandler(private val activity: Activity) : MethodCallHand
         when (call.method) {
             "launchAlarmActivity" -> {
                 try {
+                    Log.d("AlarmMethodChannel", "launchAlarmActivity called")
+                    
+                    // Start vibration immediately
                     startVibration()
 
-                    val title = call.argument<String>("title")
-                    val body = call.argument<String>("body")
+                    val title = call.argument<String>("title") ?: "Wake Up!"
+                    val body = call.argument<String>("body") ?: "Approaching destination"
                     val allowContinue = call.argument<Boolean>("allowContinue") ?: true
 
-                    val intent = Intent(context, AlarmActivity::class.java)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    // Create intent with all necessary flags for lock screen display
+                    val intent = Intent(context, AlarmActivity::class.java).apply {
+                        // Essential flags for displaying over lock screen and other apps
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_NO_HISTORY or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                        )
+                        
+                        // Add extras
+                        val extras = Bundle().apply {
+                            putString("title", title)
+                            putString("body", body)
+                            putBoolean("allowContinue", allowContinue)
+                        }
+                        putExtras(extras)
+                    }
 
-                    val extras = Bundle()
-                    extras.putString("title", title ?: "Wake Up!")
-                    extras.putString("body", body ?: "Approaching destination")
-                    extras.putBoolean("allowContinue", allowContinue)
-                    intent.putExtras(extras)
-
+                    // Launch the alarm activity
                     context.startActivity(intent)
+                    Log.d("AlarmMethodChannel", "AlarmActivity launched successfully")
+                    
                     result.success(true)
                 } catch (e: Exception) {
-                    result.error("LAUNCH_FAILED", "Failed to launch AlarmActivity", e.message)
+                    Log.e("AlarmMethodChannel", "Failed to launch AlarmActivity", e)
+                    result.error("LAUNCH_FAILED", "Failed to launch AlarmActivity: ${e.message}", e.stackTraceToString())
                 }
             }
             "stopVibration" -> {

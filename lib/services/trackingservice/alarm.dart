@@ -332,6 +332,13 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
           }
           if (thresholdMeters != null) {
             eventAlarm = toEventM <= thresholdMeters;
+            AppLogger.I.debug('Event distance check', domain: 'alarm', context: {
+              'eventIdx': idx,
+              'eventType': ev.type,
+              'toEventM': toEventM.toStringAsFixed(1),
+              'thresholdM': thresholdMeters.toStringAsFixed(1),
+              'willFire': eventAlarm,
+            });
           } else if (thresholdSeconds != null) {
             if (!_timeAlarmEligible) {
               // Do not raise time-based event alarms until eligible
@@ -339,6 +346,14 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
             }
             final estSec = toEventM / spd;
             eventAlarm = estSec <= thresholdSeconds;
+            AppLogger.I.debug('Event time check', domain: 'alarm', context: {
+              'eventIdx': idx,
+              'eventType': ev.type,
+              'toEventM': toEventM.toStringAsFixed(1),
+              'estSec': estSec.toStringAsFixed(1),
+              'thresholdSec': thresholdSeconds.toStringAsFixed(1),
+              'willFire': eventAlarm,
+            });
           } else if (thresholdStops != null && progressStops != null) {
             // Map event meters to event stops
             double? eventStops;
@@ -351,12 +366,28 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
             if (eventStops != null) {
               final toEventStops = eventStops - progressStops;
               eventAlarm = toEventStops <= thresholdStops;
+              AppLogger.I.debug('Event stops check', domain: 'alarm', context: {
+                'eventIdx': idx,
+                'eventType': ev.type,
+                'toEventM': toEventM.toStringAsFixed(1),
+                'toEventStops': toEventStops.toStringAsFixed(1),
+                'thresholdStops': thresholdStops.toStringAsFixed(1),
+                'progressStops': progressStops.toStringAsFixed(1),
+                'eventStops': eventStops.toStringAsFixed(1),
+                'willFire': eventAlarm,
+              });
             }
           }
           // If not already decided and heuristic window applies, use it (pre-transfer alert)
           if (!eventAlarm && heuristicWindowM != null) {
             if (toEventM <= heuristicWindowM) {
               eventAlarm = true;
+              AppLogger.I.debug('Event heuristic window triggered', domain: 'alarm', context: {
+                'eventIdx': idx,
+                'eventType': ev.type,
+                'toEventM': toEventM.toStringAsFixed(1),
+                'heuristicWindowM': heuristicWindowM.toStringAsFixed(1),
+              });
             }
           }
           if (eventAlarm) {
@@ -367,20 +398,34 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
               final dedupeKey = 'event:${ev.type}:${ev.meters.toStringAsFixed(1)}';
               if (!TrackingService.alarmDeduplicator.shouldFire(dedupeKey)) {
                 AppLogger.I.debug('Suppressed duplicate event alarm', domain: 'alarm', context: {'key': dedupeKey});
-              } else if (TrackingService.isTestMode) {
-                await NotificationService().showWakeUpAlarm(
-                  title: title,
-                  body: body,
-                  allowContinueTracking: true,
-                );
               } else {
-                service.invoke('fireAlarm', {
+                AppLogger.I.info('Firing event alarm', domain: 'alarm', context: {
+                  'eventIdx': idx,
+                  'eventType': ev.type,
                   'title': title,
                   'body': body,
-                  'allowContinueTracking': true,
+                  'toEventM': toEventM.toStringAsFixed(1),
                 });
+                if (TrackingService.isTestMode) {
+                  await NotificationService().showWakeUpAlarm(
+                    title: title,
+                    body: body,
+                    allowContinueTracking: true,
+                  );
+                } else {
+                  service.invoke('fireAlarm', {
+                    'title': title,
+                    'body': body,
+                    'allowContinueTracking': true,
+                  });
+                }
               }
-            } catch (_) {}
+            } catch (e) {
+              AppLogger.I.warn('Failed to fire event alarm', domain: 'alarm', context: {
+                'eventIdx': idx,
+                'error': e.toString(),
+              });
+            }
             _firedEventIndexes.add(idx);
             // Continue to check destination separately
           }
