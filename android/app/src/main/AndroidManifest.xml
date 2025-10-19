@@ -73,7 +73,7 @@
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:stopWithTask="false"
             android:exported="false"
-            android:foregroundServiceType="location|dataSync" />
+            android:foregroundServiceType="location" />
 
         <receiver
             android:name=".ProgressWakeReceiver"
