@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geowake2/services/log.dart';
 import 'package:geowake2/services/secure_storage.dart';
 import 'package:geowake2/services/ssl_pinning.dart';
+import '../config/tweakables.dart';
 
 class ApiClient {
   static const String _baseUrl = 'https://geowake-production.up.railway.app/api'; // Fixed: Added https:// and /api
@@ -296,6 +297,54 @@ class ApiClient {
   }
   
   /// Make authenticated API request with auto-retry on auth failure
+  /// Helper to retry network requests on transient failures
+  Future<http.Response> _requestWithRetry(
+    Future<http.Response> Function() request,
+    {int maxRetries = GeoWakeTweakables.networkMaxRetries}
+  ) async {
+    int attempt = 0;
+    Duration delay = Duration(seconds: GeoWakeTweakables.networkRetryInitialDelaySeconds);
+    
+    while (true) {
+      try {
+        attempt++;
+        final response = await request();
+        
+        // Success or client error (don't retry)
+        if (response.statusCode < 500) {
+          return response;
+        }
+        
+        // Server error (5xx) - retry if we have attempts left
+        if (attempt >= maxRetries) {
+          Log.w('ApiClient', 'Max retries ($maxRetries) reached with 5xx error');
+          return response;
+        }
+        
+        Log.d('ApiClient', 'Server error (${response.statusCode}), retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries)');
+        await Future.delayed(delay);
+        delay = Duration(seconds: (delay.inSeconds * 2).clamp(
+          GeoWakeTweakables.networkRetryInitialDelaySeconds,
+          GeoWakeTweakables.networkRetryMaxDelaySeconds,
+        ));
+        
+      } catch (e) {
+        // Network error (timeout, no connection, etc.)
+        if (attempt >= maxRetries) {
+          Log.w('ApiClient', 'Max retries ($maxRetries) reached with network error: $e');
+          rethrow;
+        }
+        
+        Log.d('ApiClient', 'Network error, retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries): $e');
+        await Future.delayed(delay);
+        delay = Duration(seconds: (delay.inSeconds * 2).clamp(
+          GeoWakeTweakables.networkRetryInitialDelaySeconds,
+          GeoWakeTweakables.networkRetryMaxDelaySeconds,
+        ));
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _makeRequest(
     String method,
     String endpoint, {
@@ -366,23 +415,24 @@ class ApiClient {
       
     Log.d('ApiClient', 'Making ${method.toUpperCase()} request to: $uri');
       
+      // Retry logic for transient network failures
       late http.Response response;
       final headers = _buildHeaders();
       
-      switch (method.toUpperCase()) {
-        case 'GET':
-          response = await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-          break;
-        case 'POST':
-          response = await _client.post(
-            uri,
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          ).timeout(const Duration(seconds: 15));
-          break;
-        default:
-          throw Exception('Unsupported HTTP method: $method');
-      }
+      response = await _requestWithRetry(() async {
+        switch (method.toUpperCase()) {
+          case 'GET':
+            return await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+          case 'POST':
+            return await _client.post(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            ).timeout(const Duration(seconds: 15));
+          default:
+            throw Exception('Unsupported HTTP method: $method');
+        }
+      });
       
   Log.d('ApiClient', 'Response status: ${response.statusCode}');
       if (!kReleaseMode) {
