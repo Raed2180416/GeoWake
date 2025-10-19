@@ -44,6 +44,7 @@ import 'package:geowake2/services/metrics/app_metrics.dart';
 import 'package:geowake2/services/heading_smoother.dart';
 import 'package:geowake2/services/sample_validator.dart';
 import '../config/alarm_thresholds.dart';
+import '../config/tweakables.dart';
 import 'movement_classifier.dart';
 import 'alarm_deduplicator.dart';
 import 'alarm_scheduler.dart';
@@ -93,7 +94,7 @@ class TrackingService {
   // Heuristic mapping from one transit stop to meters (used for pre-boarding & transfer distance windows when in stops mode)
   // Empirically urban heavy rail: 600-1200m, light rail/tram: 300-600m, dense metro core: ~400-500m. Choose 550m midpoint.
   // Tests can override this to force deterministic thresholds.
-  static double stopsHeuristicMetersPerStop = 550.0;
+  static double stopsHeuristicMetersPerStop = GeoWakeTweakables.stopsHeuristicMetersPerStop;
   // Idle power scaler test factory & latest mode (for assertions)
   static IdlePowerScaler Function()? testIdleScalerFactory;
   static String? get latestPowerMode => _latestPowerMode;
@@ -658,6 +659,8 @@ class TrackingService {
     }
     try { _fallbackManager?.cancel(reason: 'stopTracking'); } catch (_) {}
   _trackingActive = false;
+  // Reset alarm deduplicator for next tracking session
+  try { alarmDeduplicator.reset(); } catch (_) {}
   // Suppress any late progress updates after stopping
   await TrackingService.setProgressSuppressed(true);
     try { await NotificationService().cancelJourneyProgress(); } catch (_) {}

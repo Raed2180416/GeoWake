@@ -9,15 +9,14 @@ import 'themes/appthemes.dart';
 import 'screens/otherimpservices/recent_locations_service.dart';
 import 'services/navigation_service.dart';
 import 'services/notification_service.dart';
+import 'services/permission_monitor.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'services/persistence/tracking_session_state.dart';
 import 'dart:developer' as dev;
 import 'dart:async';
-// Dev/Diagnostics screens
-import 'screens/dev_route_sim_screen.dart';
-import 'screens/diagnostics_screen.dart';
+// Screen imports
 import 'screens/otherimpservices/preload_map_screen.dart';
 
 // With refactored bootstrap this remains splash; navigation happens after phase ready.
@@ -41,11 +40,15 @@ class MyApp extends StatefulWidget {
   MyAppState createState() => MyAppState();
 }
 
+// Theme mode enum for system/light/dark selection
+enum AppThemeMode { system, light, dark }
+
 class MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  bool isDarkMode = false;
+  AppThemeMode _themeMode = AppThemeMode.system;
   Timer? _hbTimer;
   int _hbCount = 0;
   StreamSubscription? _bootstrapSub;
+  final PermissionMonitor _permissionMonitor = PermissionMonitor();
 
   @override
   void initState() {
@@ -53,10 +56,19 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Start listening for app lifecycle events (pause, resume, etc.).
     WidgetsBinding.instance.addObserver(this);
     
+    // Load theme preference from storage
+    _loadThemePreference();
+    
     // =======================================================================
     // FIX: Call the permission check function here.
     // =======================================================================
     _checkNotificationPermission();
+    
+    // Check and request exact alarm permission (Android 12+)
+    PermissionMonitor.checkAndRequestExactAlarmPermission();
+    
+    // Start monitoring permissions for revocation
+    _permissionMonitor.startMonitoring();
   // If an alarm was fired while app was backgrounded, present it now.
     NotificationService().showPendingAlarmScreenIfAny();
   // Attempt to restore the ongoing journey notification if tracking is active and not suppressed
@@ -122,6 +134,8 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     // Stop listening to prevent memory leaks.
     WidgetsBinding.instance.removeObserver(this);
+    // Stop permission monitoring
+    _permissionMonitor.stopMonitoring();
     // As a final cleanup when the app is truly closing, close Hive.
     try { Hive.close(); } catch (_) {}
     try { _bootstrapSub?.cancel(); } catch (_) {}
@@ -168,10 +182,58 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  void toggleTheme() {
+  /// Load theme preference from SharedPreferences
+  Future<void> _loadThemePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final themeModeString = prefs.getString('themeMode') ?? 'system';
+      if (mounted) {
+        setState(() {
+          _themeMode = AppThemeMode.values.firstWhere(
+            (mode) => mode.name == themeModeString,
+            orElse: () => AppThemeMode.system,
+          );
+        });
+      }
+    } catch (e) {
+      dev.log('Failed to load theme preference: $e', name: 'main');
+    }
+  }
+
+  /// Save theme preference to SharedPreferences
+  Future<void> _saveThemePreference(AppThemeMode mode) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('themeMode', mode.name);
+    } catch (e) {
+      dev.log('Failed to save theme preference: $e', name: 'main');
+    }
+  }
+
+  /// Set theme mode and persist it
+  void setThemeMode(AppThemeMode mode) {
     setState(() {
-      isDarkMode = !isDarkMode;
+      _themeMode = mode;
     });
+    _saveThemePreference(mode);
+  }
+
+  /// Toggle between light and dark mode (for compatibility with existing UI)
+  void toggleTheme() {
+    final newMode = _themeMode == AppThemeMode.dark 
+        ? AppThemeMode.light 
+        : AppThemeMode.dark;
+    setThemeMode(newMode);
+  }
+
+  /// Get current theme mode for compatibility
+  bool get isDarkMode {
+    if (_themeMode == AppThemeMode.system) {
+      // Detect system brightness
+      final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+      return brightness == Brightness.dark;
+    }
+    return _themeMode == AppThemeMode.dark;
   }
 
   @override
@@ -179,27 +241,29 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Periodic heartbeat (debug only) – once every 10s for first minute
     // (Uses a simple timer started on first build.)
     _heartbeatInitOnce();
+    
+    // Determine effective theme based on mode and system brightness
+    final ThemeData effectiveTheme;
+    if (_themeMode == AppThemeMode.system) {
+      final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+      effectiveTheme = brightness == Brightness.dark 
+          ? AppThemes.darkTheme 
+          : AppThemes.lightTheme;
+    } else {
+      effectiveTheme = _themeMode == AppThemeMode.dark
+          ? AppThemes.darkTheme
+          : AppThemes.lightTheme;
+    }
+    
     return MaterialApp(
       title: 'GeoWake',
       navigatorKey: NavigationService.navigatorKey,
-      theme: isDarkMode ? AppThemes.darkTheme : AppThemes.lightTheme,
+      theme: effectiveTheme,
       initialRoute: _initialRoute,
       onGenerateRoute: (settings) {
         if (settings.name == '/splash') {
           return MaterialPageRoute(
             builder: (_) => const SplashScreen(),
-            settings: settings,
-          );
-        }
-        if (settings.name == '/devSim') {
-          return MaterialPageRoute(
-            builder: (_) => const DevRouteSimulationScreen(),
-            settings: settings,
-          );
-        }
-        if (settings.name == '/diagnostics') {
-          return MaterialPageRoute(
-            builder: (_) => const DiagnosticsScreen(),
             settings: settings,
           );
         }

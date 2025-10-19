@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kDebugMode, kProfileMode;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,7 +7,7 @@ import 'trackingservice.dart';
 import 'api_client.dart';
 import 'notification_service.dart';
 import 'persistence/tracking_session_state.dart';
-import '../debug/dev_server.dart';
+import 'secure_hive_init.dart';
 
 /// Fast bootstrap strategy:
 /// 1. Perform ultra-lightweight auto-resume decision (SharedPreferences + optional
@@ -95,11 +94,6 @@ class BootstrapService {
       mapTrackingArgs: early.mapArgs,
     ));
     print('GW_BOOT_FAST_READY route=${early.targetRoute} autoResumed=${early.autoResumed} dtMs=$dt');
-    // Start lightweight dev server after UI navigates
-    if (kDebugMode || kProfileMode) {
-      // ignore: unawaited_futures
-      DevServer.start();
-    }
     // 2. LATE INIT (do not await for UI navigation)
     // ignore: unawaited_futures
     _lateInit(t0: t0);
@@ -197,7 +191,11 @@ class BootstrapService {
       }
     }
     await Future.wait([
-      _guard('HIVE', () async { await Hive.initFlutter(); }),
+      _guard('HIVE', () async { 
+        await Hive.initFlutter();
+        // Initialize encryption immediately after Hive
+        await SecureHiveInit.initialize();
+      }),
       _guard('API', () async { await ApiClient.instance.initialize(); }),
       _guard('NOTIF', () async { await NotificationService().initialize(); }),
       _guard('TRACKING_INIT', () async { await TrackingService().initializeService(); }),

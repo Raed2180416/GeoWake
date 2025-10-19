@@ -21,6 +21,7 @@ import 'package:geowake2/services/alarm_player.dart';
 import 'package:geowake2/services/notification_service.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geowake2/services/persistence/tracking_session_state.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class MapTrackingScreen extends StatefulWidget {
   MapTrackingScreen({Key? key}) : super(key: key);
@@ -46,8 +47,10 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
 
   // StreamSubscription to update the current location marker.
   StreamSubscription<Position>? _locationSubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   LatLng? _currentUserLocation;
   List<LatLng> _routePoints = const [];
+  bool _isOnline = true;
   int? _lastSnapIndex;
   StreamSubscription<RouteSwitchEvent>? _routeSwitchSub;
   StreamSubscription<ActiveRouteState>? _routeStateSub;
@@ -364,6 +367,14 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       );
     });
 
+    // Listen for connectivity changes to show offline indicator
+    _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen((results) {
+      if (!mounted) return;
+      setState(() {
+        _isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+      });
+    });
+
     // Listen for continuous route state to compute ETA and remaining distance.
     _routeStateSub ??= TrackingService().activeRouteStateStream.listen((state) {
       if (!mounted) return;
@@ -562,6 +573,7 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
     _locationSubscription?.cancel();
     _routeSwitchSub?.cancel();
     _routeStateSub?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
   }
 
@@ -610,6 +622,28 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         body: SafeArea(
           child: Column(
             children: [
+              // Offline mode indicator banner
+              if (!_isOnline)
+                Container(
+                  width: double.infinity,
+                  color: Colors.orange.shade700,
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.wifi_off, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Offline - Using cached route data',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: Stack(
                   children: [

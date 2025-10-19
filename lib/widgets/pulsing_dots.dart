@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../config/tweakables.dart';
 
 class PulsingDots extends StatefulWidget {
   final double size;
@@ -32,7 +33,7 @@ class _PulsingDotsState extends State<PulsingDots> {
 
   @override
   Widget build(BuildContext context) {
-    final sizes = List<double>.generate(3, (i) => i == _active ? widget.size * 1.8 : widget.size);
+    final sizes = List<double>.generate(3, (i) => i == _active ? widget.size * GeoWakeTweakables.pulsingDotsActiveMultiplier : widget.size);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) => AnimatedContainer(

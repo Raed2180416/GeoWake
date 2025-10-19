@@ -3,11 +3,8 @@
 import 'package:flutter/material.dart';
 import '../main.dart';
 
-// --- STEP 1: ADD THIS IMPORT ---
-// This line tells our settings drawer that the RingtonesScreen exists and where to find it.
+// Import for ringtones screen
 import 'package:geowake2/screens/ringtones_screen.dart';
-import 'package:geowake2/screens/dev_route_sim_screen.dart';
-import 'package:geowake2/screens/diagnostics_screen.dart';
 
  
 class SettingsDrawer extends StatelessWidget {
@@ -17,6 +14,7 @@ class SettingsDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final appState = context.findAncestorStateOfType<MyAppState>();
     final isDarkMode = appState?.isDarkMode ?? false;
+    final themeMode = appState?._themeMode ?? AppThemeMode.system;
 
     return Drawer(
       child: SafeArea(
@@ -36,13 +34,11 @@ class SettingsDrawer extends StatelessWidget {
               ),
             ),
             ListTile(
-              leading: Icon(
-                isDarkMode ? Icons.wb_sunny : Icons.nightlight_round,
-              ),
-              title: Text(isDarkMode ? 'Light Mode' : 'Dark Mode'),
+              leading: const Icon(Icons.brightness_6),
+              title: const Text('Theme'),
+              subtitle: Text(_getThemeModeLabel(themeMode)),
               onTap: () {
-                appState?.toggleTheme();
-                Navigator.of(context).pop();
+                _showThemeModeDialog(context, appState);
               },
             ),
             ListTile(
@@ -69,27 +65,6 @@ class SettingsDrawer extends StatelessWidget {
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.science_outlined),
-              title: const Text('Diagnostics'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (context) => const DiagnosticsScreen(),
-                ));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.route_outlined),
-              title: const Text('Dev Route Simulator'),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (context) => const DevRouteSimulationScreen(),
-                ));
-              },
-            ),
-            const Divider(),
-            ListTile(
               leading: const Icon(Icons.close),
               title: const Text('Close'),
               onTap: () {
@@ -98,6 +73,51 @@ class SettingsDrawer extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  String _getThemeModeLabel(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.system:
+        return 'System Default';
+      case AppThemeMode.light:
+        return 'Light';
+      case AppThemeMode.dark:
+        return 'Dark';
+    }
+  }
+
+  void _showThemeModeDialog(BuildContext context, MyAppState? appState) {
+    if (appState == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose Theme'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AppThemeMode.values.map((mode) {
+            return RadioListTile<AppThemeMode>(
+              title: Text(_getThemeModeLabel(mode)),
+              value: mode,
+              groupValue: appState._themeMode,
+              onChanged: (value) {
+                if (value != null) {
+                  appState.setThemeMode(value);
+                  Navigator.pop(context);
+                  Navigator.pop(context); // Close drawer
+                }
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
       ),
     );
   }
