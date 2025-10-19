@@ -68,7 +68,9 @@ Future<void> _onStop() async {
 Timer? _progressHeartbeatTimer;
 void _startProgressHeartbeat(ServiceInstance service) {
   try { _progressHeartbeatTimer?.cancel(); } catch (_) {}
-  _progressHeartbeatTimer = Timer.periodic(const Duration(seconds: 8), (_) async {
+  // Use 5 second heartbeat for more aggressive notification persistence
+  // This ensures the notification is refreshed frequently even when app is backgrounded
+  _progressHeartbeatTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
     // Check if native END_TRACKING was triggered
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -93,6 +95,26 @@ void _startProgressHeartbeat(ServiceInstance service) {
       dev.log('Error checking native END_TRACKING signal: $e', name: 'TrackingService');
     }
     
+    // CRITICAL: Always ensure service is in foreground mode first
+    // This prevents the service from being killed when app is swiped away
+    try {
+      final dynamic dynService = service;
+      bool shouldElevate = false;
+      try {
+        final bool? isFg = await dynService.isForegroundService();
+        shouldElevate = isFg == false;
+      } catch (_) {}
+      if (shouldElevate) {
+        dev.log('Progress heartbeat detected non-foreground service; re-elevating.', name: 'TrackingService');
+        try { 
+          await dynService.setAsForegroundService(); 
+          dev.log('Service re-elevated to foreground', name: 'TrackingService');
+        } catch (e) {
+          dev.log('Failed to re-elevate service: $e', name: 'TrackingService');
+        }
+      }
+    } catch (_) {}
+    
     // Re-post progress notification if tracking is active and not suppressed
     try {
       final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
@@ -112,22 +134,12 @@ void _startProgressHeartbeat(ServiceInstance service) {
               subtitle: snapshot['subtitle'] as String,
               progress0to1: snapshot['progress'] as double,
             );
-          } catch (_) {}
+          } catch (e) {
+            dev.log('Failed to show progress notification in heartbeat: $e', name: 'TrackingService');
+          }
         }
         try { await NotificationService().ensureProgressNotificationPresent(); } catch (_) {}
       }
-      try {
-        final dynamic dynService = service;
-        bool shouldElevate = false;
-        try {
-          final bool? isFg = await dynService.isForegroundService();
-          shouldElevate = isFg == false;
-        } catch (_) {}
-        if (shouldElevate) {
-          dev.log('Progress heartbeat detected non-foreground service; re-elevating.', name: 'TrackingService');
-          try { await dynService.setAsForegroundService(); } catch (_) {}
-        }
-      } catch (_) {}
     } catch (_) {}
     // Emit light-weight position update for diagnostics harness map UI
     try {
@@ -140,6 +152,7 @@ void _startProgressHeartbeat(ServiceInstance service) {
       }
     } catch (_) {}
   });
+  dev.log('Progress heartbeat started with 5-second interval', name: 'TrackingService');
 }
 
 Map<String, dynamic>? _buildProgressSnapshot({ActiveRouteState? stateOverride}) {

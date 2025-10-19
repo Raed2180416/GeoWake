@@ -599,12 +599,16 @@ class NotificationService {
     }
   }
 
-  Future<void> scheduleProgressWakeFallback({Duration interval = const Duration(seconds: 45)}) async {
+  Future<void> scheduleProgressWakeFallback({Duration interval = const Duration(seconds: 30)}) async {
     if (isTestMode) return;
     try {
+      // Use a shorter interval (30 seconds) to ensure notification persistence
+      // This ensures the notification will be restored quickly even if the app is swiped away
+      // The AlarmManager will wake the device and restore the notification
       await _alarmMethodChannel.invokeMethod('scheduleProgressWake', {
         'intervalMs': interval.inMilliseconds,
       });
+      dev.log('Scheduled progress wake fallback with interval: ${interval.inSeconds}s', name: 'NotificationService');
     } catch (e) {
       dev.log('Failed to schedule progress wake: $e', name: 'NotificationService');
     }
@@ -622,17 +626,30 @@ class NotificationService {
   Future<void> maybePromptBatteryOptimization() async {
     if (isTestMode) return;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final alreadyPrompted = prefs.getBool(_batteryPromptKey) ?? false;
-      if (alreadyPrompted) return;
+      // Check if we should prompt for battery optimization
       final shouldPrompt = await _alarmMethodChannel.invokeMethod<bool>('shouldPromptBatteryOptimization') ?? false;
       if (!shouldPrompt) {
-        await prefs.setBool(_batteryPromptKey, true);
+        // Battery optimization is already disabled, nothing to do
+        dev.log('Battery optimization already disabled', name: 'NotificationService');
         return;
       }
-      final didPrompt = await _alarmMethodChannel.invokeMethod<bool>('requestBatteryOptimizationPrompt') ?? false;
-      if (didPrompt) {
-        await prefs.setBool(_batteryPromptKey, true);
+      
+      // Prompt the user every time tracking starts to ensure they know about the requirement
+      // This is critical for Android 15 where background restrictions are stricter
+      final prefs = await SharedPreferences.getInstance();
+      final lastPromptTime = prefs.getInt('${_batteryPromptKey}_timestamp') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final daysSinceLastPrompt = (now - lastPromptTime) / (1000 * 60 * 60 * 24);
+      
+      // Prompt if never prompted, or if it's been more than 7 days since last prompt
+      if (lastPromptTime == 0 || daysSinceLastPrompt > 7) {
+        dev.log('Prompting for battery optimization (days since last prompt: $daysSinceLastPrompt)', name: 'NotificationService');
+        final didPrompt = await _alarmMethodChannel.invokeMethod<bool>('requestBatteryOptimizationPrompt') ?? false;
+        if (didPrompt) {
+          await prefs.setInt('${_batteryPromptKey}_timestamp', now);
+        }
+      } else {
+        dev.log('Skipping battery optimization prompt (last prompted ${daysSinceLastPrompt.toStringAsFixed(1)} days ago)', name: 'NotificationService');
       }
     } catch (e) {
       dev.log('Battery optimization prompt failed: $e', name: 'NotificationService');

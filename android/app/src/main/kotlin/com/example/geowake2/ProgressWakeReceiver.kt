@@ -25,25 +25,44 @@ class ProgressWakeReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_PROGRESS_WAKE) return
+        
+        android.util.Log.d("ProgressWakeReceiver", "===============================================")
+        android.util.Log.d("ProgressWakeReceiver", "Progress wake alarm triggered!")
+        android.util.Log.d("ProgressWakeReceiver", "===============================================")
+        
         showCachedNotification(context)
         ProgressWakeScheduler.reschedule(context)
     }
 
     private fun showCachedNotification(context: Context) {
+        android.util.Log.d("ProgressWakeReceiver", "showCachedNotification called")
+        
         val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         val suppressed = prefs.getBoolean(SUPPRESS_PREF_KEY, false)
         if (suppressed) {
+            android.util.Log.d("ProgressWakeReceiver", "Notification suppressed by user, skipping")
             return
         }
-        val payloadJson = prefs.getString(PROGRESS_PREF_KEY, null) ?: return
+        val payloadJson = prefs.getString(PROGRESS_PREF_KEY, null)
+        if (payloadJson == null) {
+            android.util.Log.d("ProgressWakeReceiver", "No cached progress payload found")
+            return
+        }
+        
+        android.util.Log.d("ProgressWakeReceiver", "Found cached payload: $payloadJson")
+        
         val payload = try {
             JSONObject(payloadJson)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            android.util.Log.e("ProgressWakeReceiver", "Failed to parse payload JSON", e)
             return
         }
         val title = payload.optString("title", "GeoWake journey")
         val subtitle = payload.optString("subtitle", "")
         val progress = payload.optDouble("progress", 0.0)
+        
+        android.util.Log.d("ProgressWakeReceiver", "Showing notification: title=$title, progress=$progress")
+        
         val manager = NotificationManagerCompat.from(context)
         ensureChannel(context)
         
@@ -84,6 +103,7 @@ class ProgressWakeReceiver : BroadcastReceiver() {
         builder.addAction(0, context.getString(R.string.notification_action_end_tracking), endPending)
         builder.addAction(0, context.getString(R.string.notification_action_ignore_tracking), ignorePending)
 
+        android.util.Log.d("ProgressWakeReceiver", "Posting notification with ID $PROGRESS_NOTIFICATION_ID")
         manager.notify(PROGRESS_NOTIFICATION_ID, builder.build())
     }
 
