@@ -15,9 +15,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'services/persistence/tracking_session_state.dart';
 import 'dart:developer' as dev;
 import 'dart:async';
-// Dev/Diagnostics screens
-import 'screens/dev_route_sim_screen.dart';
-import 'screens/diagnostics_screen.dart';
+// Screen imports
 import 'screens/otherimpservices/preload_map_screen.dart';
 
 // With refactored bootstrap this remains splash; navigation happens after phase ready.
@@ -188,18 +186,6 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
         if (settings.name == '/splash') {
           return MaterialPageRoute(
             builder: (_) => const SplashScreen(),
-            settings: settings,
-          );
-        }
-        if (settings.name == '/devSim') {
-          return MaterialPageRoute(
-            builder: (_) => const DevRouteSimulationScreen(),
-            settings: settings,
-          );
-        }
-        if (settings.name == '/diagnostics') {
-          return MaterialPageRoute(
-            builder: (_) => const DiagnosticsScreen(),
             settings: settings,
           );
         }
