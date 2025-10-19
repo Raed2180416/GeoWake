@@ -659,6 +659,8 @@ class TrackingService {
     }
     try { _fallbackManager?.cancel(reason: 'stopTracking'); } catch (_) {}
   _trackingActive = false;
+  // Reset alarm deduplicator for next tracking session
+  try { alarmDeduplicator.reset(); } catch (_) {}
   // Suppress any late progress updates after stopping
   await TrackingService.setProgressSuppressed(true);
     try { await NotificationService().cancelJourneyProgress(); } catch (_) {}
