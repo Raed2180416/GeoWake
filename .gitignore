@@ -54,3 +54,9 @@ app.*.map.json
 **/google-services.json
 **/GoogleService-Info.plist
 android/key.properties
+# Build artifacts and temporary files
+android/build-info.txt
+android/build-log.txt
+android/gradle_version.txt
+test_results.json
+failing_report.json
