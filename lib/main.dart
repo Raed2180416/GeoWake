@@ -9,6 +9,7 @@ import 'themes/appthemes.dart';
 import 'screens/otherimpservices/recent_locations_service.dart';
 import 'services/navigation_service.dart';
 import 'services/notification_service.dart';
+import 'services/permission_monitor.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -47,6 +48,7 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Timer? _hbTimer;
   int _hbCount = 0;
   StreamSubscription? _bootstrapSub;
+  final PermissionMonitor _permissionMonitor = PermissionMonitor();
 
   @override
   void initState() {
@@ -61,6 +63,12 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // FIX: Call the permission check function here.
     // =======================================================================
     _checkNotificationPermission();
+    
+    // Check and request exact alarm permission (Android 12+)
+    PermissionMonitor.checkAndRequestExactAlarmPermission();
+    
+    // Start monitoring permissions for revocation
+    _permissionMonitor.startMonitoring();
   // If an alarm was fired while app was backgrounded, present it now.
     NotificationService().showPendingAlarmScreenIfAny();
   // Attempt to restore the ongoing journey notification if tracking is active and not suppressed
@@ -126,6 +134,8 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     // Stop listening to prevent memory leaks.
     WidgetsBinding.instance.removeObserver(this);
+    // Stop permission monitoring
+    _permissionMonitor.stopMonitoring();
     // As a final cleanup when the app is truly closing, close Hive.
     try { Hive.close(); } catch (_) {}
     try { _bootstrapSub?.cancel(); } catch (_) {}

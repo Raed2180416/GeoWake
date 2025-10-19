@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geowake2/services/permission_service.dart';
+import 'package:geowake2/services/permission_monitor.dart';
 import 'package:geowake2/screens/otherimpservices/recent_locations_service.dart';
 import 'package:geowake2/services/places_service.dart';
 import 'package:geowake2/services/metro_stop_service.dart';
@@ -349,6 +350,11 @@ class HomeScreenState extends State<HomeScreen> {
 
   Future<void> _proceedWithDirections() async {
     try {
+      // Check and request battery optimization whitelist before starting tracking
+      if (mounted) {
+        await PermissionMonitor.showBatteryOptimizationGuidance(context);
+      }
+      
       final Position? currentPosition = await _getCurrentLocation();
       if (currentPosition == null) {
         _showErrorDialog("Location Error", "Could not get your current location. Please enable location services.");
