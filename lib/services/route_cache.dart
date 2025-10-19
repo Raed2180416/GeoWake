@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:geowake2/services/log.dart';
 import '../config/tweakables.dart';
+import 'secure_hive_init.dart';
 
 /// Simple Hive-backed route cache for Directions API responses.
 /// Keyed by a stable hash of origin+destination+mode.
@@ -62,14 +63,17 @@ class RouteCache {
   static Future<void> _ensureOpen() async {
     if (_box != null && _box!.isOpen) return;
     try {
-      _box = await Hive.openBox<String>(boxName);
+      // Use secure encrypted box
+      _box = await SecureHiveInit.openEncryptedBox<String>(boxName);
+      Log.i('RouteCache', 'Encrypted box opened successfully');
     } catch (e) {
-  Log.w('RouteCache', 'Error opening box: $e. Attempting recreate.');
+      Log.w('RouteCache', 'Error opening encrypted box: $e. Attempting recreate.');
       try {
         await Hive.deleteBoxFromDisk(boxName);
-        _box = await Hive.openBox<String>(boxName);
+        _box = await SecureHiveInit.openEncryptedBox<String>(boxName);
+        Log.i('RouteCache', 'Encrypted box recreated successfully');
       } catch (e2) {
-  Log.e('RouteCache', 'Failed to recreate box', e2);
+        Log.e('RouteCache', 'Failed to recreate encrypted box', e2);
         rethrow;
       }
     }

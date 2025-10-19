@@ -7,6 +7,7 @@ import 'trackingservice.dart';
 import 'api_client.dart';
 import 'notification_service.dart';
 import 'persistence/tracking_session_state.dart';
+import 'secure_hive_init.dart';
 
 /// Fast bootstrap strategy:
 /// 1. Perform ultra-lightweight auto-resume decision (SharedPreferences + optional
@@ -190,7 +191,11 @@ class BootstrapService {
       }
     }
     await Future.wait([
-      _guard('HIVE', () async { await Hive.initFlutter(); }),
+      _guard('HIVE', () async { 
+        await Hive.initFlutter();
+        // Initialize encryption immediately after Hive
+        await SecureHiveInit.initialize();
+      }),
       _guard('API', () async { await ApiClient.instance.initialize(); }),
       _guard('NOTIF', () async { await NotificationService().initialize(); }),
       _guard('TRACKING_INIT', () async { await TrackingService().initializeService(); }),
