@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:geowake2/services/log.dart';
+import '../config/tweakables.dart';
 
 /// Simple Hive-backed route cache for Directions API responses.
 /// Keyed by a stable hash of origin+destination+mode.
@@ -52,9 +53,9 @@ class RouteCacheEntry {
 
 class RouteCache {
   static const String boxName = 'route_cache_v1';
-  static const Duration defaultTtl = Duration(minutes: 5);
-  static const double defaultOriginDeviationMeters = 300.0;
-  static int maxEntries = 30; // configurable cap
+  static const Duration defaultTtl = GeoWakeTweakables.routeCacheTtl;
+  static const double defaultOriginDeviationMeters = GeoWakeTweakables.routeCacheOriginDeviationMeters;
+  static int maxEntries = GeoWakeTweakables.routeCacheMaxEntries; // configurable cap
 
   static Box<String>? _box; // store JSON strings
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/bootstrap_service.dart';
 import '../services/navigation_service.dart';
+import '../config/tweakables.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -26,17 +27,17 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     // Controller for the pulsing (ringing) effect.
     ringController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: Duration(seconds: GeoWakeTweakables.splashScreenAnimationDurationSeconds),
     )..repeat(reverse: true);
     
     // Controller for the fade and slide in of the text.
     textController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: Duration(seconds: GeoWakeTweakables.splashScreenAnimationDurationSeconds),
     );
     
     // Start text animation slightly after the splash appears.
-    _textTimer = Timer(const Duration(milliseconds: 800), () {
+    _textTimer = Timer(Duration(milliseconds: GeoWakeTweakables.splashScreenTextDelayMs), () {
       if (!mounted) return;
       textController.forward();
     });
@@ -57,8 +58,8 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         }
       }
     });
-    // Fallback after 7s if bootstrap never reports ready
-    _fallbackNavTimer = Timer(const Duration(seconds: 7), () {
+    // Fallback after configured timeout if bootstrap never reports ready
+    _fallbackNavTimer = Timer(Duration(seconds: GeoWakeTweakables.splashScreenFallbackTimeoutSeconds), () {
       if (!mounted) return;
       final nav = NavigationService.navigatorKey.currentState;
       if (nav != null) {
