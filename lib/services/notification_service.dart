@@ -599,11 +599,12 @@ class NotificationService {
     }
   }
 
-  Future<void> scheduleProgressWakeFallback({Duration interval = const Duration(seconds: 45)}) async {
+  Future<void> scheduleProgressWakeFallback({Duration interval = const Duration(seconds: 30)}) async {
     if (isTestMode) return;
     try {
-      // Use a shorter interval (45 seconds) to ensure notification persistence
+      // Use a shorter interval (30 seconds) to ensure notification persistence
       // This ensures the notification will be restored quickly even if the app is swiped away
+      // The AlarmManager will wake the device and restore the notification
       await _alarmMethodChannel.invokeMethod('scheduleProgressWake', {
         'intervalMs': interval.inMilliseconds,
       });

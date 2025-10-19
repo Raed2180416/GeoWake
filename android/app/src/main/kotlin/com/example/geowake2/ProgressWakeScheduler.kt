@@ -12,7 +12,9 @@ object ProgressWakeScheduler {
     private const val KEY_INTERVAL = "interval"
 
     fun schedule(context: Context, intervalMs: Long) {
-        val adjustedInterval = intervalMs.coerceAtLeast(60 * 1000L)
+        // Use a minimum of 30 seconds for more aggressive notification persistence
+        // This ensures AlarmManager wakes up frequently to restore notifications
+        val adjustedInterval = intervalMs.coerceAtLeast(30 * 1000L)
         saveInterval(context, adjustedInterval)
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val triggerAt = System.currentTimeMillis() + adjustedInterval
@@ -23,10 +25,10 @@ object ProgressWakeScheduler {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             // setExactAndAllowWhileIdle is critical for Android 6+ to bypass Doze mode
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-            android.util.Log.d("ProgressWakeScheduler", "Scheduled exact alarm with Doze bypass at $triggerAt")
+            android.util.Log.d("ProgressWakeScheduler", "Scheduled exact alarm with Doze bypass at $triggerAt (in ${adjustedInterval}ms)")
         } else {
             alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-            android.util.Log.d("ProgressWakeScheduler", "Scheduled exact alarm at $triggerAt")
+            android.util.Log.d("ProgressWakeScheduler", "Scheduled exact alarm at $triggerAt (in ${adjustedInterval}ms)")
         }
     }
 
