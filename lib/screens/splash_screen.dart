@@ -80,11 +80,15 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   
   @override
   Widget build(BuildContext context) {
+    // Detect current theme brightness
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    
     // Load your custom clock logo image.
     final clockImage = Image.asset('assets/geowake.png', width: 150);
     
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: isDark ? const Color(0xFF303030) : Colors.white,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -120,7 +124,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                   "GeoWake",
                   style: GoogleFonts.pacifico(
                     fontSize: 36,
-                    color: Colors.blueGrey[800],
+                    color: isDark ? Colors.white.withOpacity(0.9) : Colors.blueGrey[800],
                   ),
                 ),
               ),

@@ -14,6 +14,7 @@ class SettingsDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final appState = context.findAncestorStateOfType<MyAppState>();
     final isDarkMode = appState?.isDarkMode ?? false;
+    final themeMode = appState?._themeMode ?? AppThemeMode.system;
 
     return Drawer(
       child: SafeArea(
@@ -33,13 +34,11 @@ class SettingsDrawer extends StatelessWidget {
               ),
             ),
             ListTile(
-              leading: Icon(
-                isDarkMode ? Icons.wb_sunny : Icons.nightlight_round,
-              ),
-              title: Text(isDarkMode ? 'Light Mode' : 'Dark Mode'),
+              leading: const Icon(Icons.brightness_6),
+              title: const Text('Theme'),
+              subtitle: Text(_getThemeModeLabel(themeMode)),
               onTap: () {
-                appState?.toggleTheme();
-                Navigator.of(context).pop();
+                _showThemeModeDialog(context, appState);
               },
             ),
             ListTile(
@@ -74,6 +73,51 @@ class SettingsDrawer extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  String _getThemeModeLabel(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.system:
+        return 'System Default';
+      case AppThemeMode.light:
+        return 'Light';
+      case AppThemeMode.dark:
+        return 'Dark';
+    }
+  }
+
+  void _showThemeModeDialog(BuildContext context, MyAppState? appState) {
+    if (appState == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose Theme'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AppThemeMode.values.map((mode) {
+            return RadioListTile<AppThemeMode>(
+              title: Text(_getThemeModeLabel(mode)),
+              value: mode,
+              groupValue: appState._themeMode,
+              onChanged: (value) {
+                if (value != null) {
+                  appState.setThemeMode(value);
+                  Navigator.pop(context);
+                  Navigator.pop(context); // Close drawer
+                }
+              },
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
       ),
     );
   }
