@@ -71,6 +71,7 @@ int _proximityConsecutivePasses = 0; // number of consecutive updates within thr
 DateTime? _proximityFirstPassAt; // when first entered threshold band
 const int _proximityRequiredPasses = 3; // require N consecutive confirmations
 const Duration _proximityMinDwell = Duration(seconds: 4); // require dwell inside threshold
+bool _startedWithinThreshold = false; // true if first position was already within threshold
 
 // Event boundaries (transfers, mode changes) for multi-route safety
 List<RouteEventBoundary> _routeEvents = const [];

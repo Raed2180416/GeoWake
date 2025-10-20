@@ -348,6 +348,7 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
   _destinationAlarmFired = false; // Reset flags for a new trip
   _proximityConsecutivePasses = 0;
   _proximityFirstPassAt = null;
+  _startedWithinThreshold = false;
   _firedEventIndexes.clear();
       // Reset time-alarm gating state
       _startedAt = DateTime.now();
