@@ -167,7 +167,23 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
       _destination!.latitude,
       _destination!.longitude,
     );
-    if (distanceInMeters <= (_alarmValue! * 1000)) { // alarmValue is in km
+    
+    // Dynamic threshold adjustment based on speed for safety
+    // When moving fast, we need to trigger earlier to account for reaction time
+    // and GPS update latency. This creates an "effective dynamic radius" while
+    // keeping the user-configured threshold as the baseline.
+    double effectiveThresholdMeters = _alarmValue! * 1000;
+    final speedMps = currentPosition.speed > 0.5 ? currentPosition.speed : _lastSpeedMps ?? 0.0;
+    if (speedMps > 5.0) { // Moving faster than ~18 km/h (above walking/cycling)
+      // Add a speed-based buffer: reaction time (10 sec) + GPS update lag (5 sec)
+      const safetyBufferSeconds = 15.0;
+      final speedBufferMeters = speedMps * safetyBufferSeconds;
+      // Only expand threshold, never shrink (max 30% increase to avoid overly aggressive triggers)
+      final maxExpansion = effectiveThresholdMeters * 0.3;
+      effectiveThresholdMeters += math.min(speedBufferMeters, maxExpansion);
+    }
+    
+    if (distanceInMeters <= effectiveThresholdMeters) {
       shouldTriggerDestination = true;
       destinationReasonLabel = _destinationName;
       // Detect if first check is already within threshold
@@ -179,11 +195,13 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
       fired: false,
       reason: 'distance_preGate',
       remainingMeters: distanceInMeters,
-      thresholdMeters: (_alarmValue! * 1000),
+      thresholdMeters: effectiveThresholdMeters,
     );
     AppLogger.I.debug('Distance check', domain: 'alarm', context: {
       'dist': distanceInMeters.toStringAsFixed(1),
-      'threshold': (_alarmValue! * 1000).toStringAsFixed(1)
+      'threshold': (_alarmValue! * 1000).toStringAsFixed(1),
+      'effectiveThreshold': effectiveThresholdMeters.toStringAsFixed(1),
+      'speed': speedMps.toStringAsFixed(1)
     });
   } else if (_alarmMode == 'time') {
     // Gate time-based alarms to avoid immediate false triggers when stationary
