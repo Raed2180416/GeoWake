@@ -167,19 +167,41 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
       _destination!.latitude,
       _destination!.longitude,
     );
-    if (distanceInMeters <= (_alarmValue! * 1000)) { // alarmValue is in km
+    
+    // Dynamic threshold adjustment based on speed for safety
+    // When moving fast, we need to trigger earlier to account for reaction time
+    // and GPS update latency. This creates an "effective dynamic radius" while
+    // keeping the user-configured threshold as the baseline.
+    double effectiveThresholdMeters = _alarmValue! * 1000;
+    final speedMps = currentPosition.speed > 0.5 ? currentPosition.speed : _lastSpeedMps ?? 0.0;
+    if (speedMps > 5.0) { // Moving faster than ~18 km/h (above walking/cycling)
+      // Add a speed-based buffer: reaction time (10 sec) + GPS update lag (5 sec)
+      const safetyBufferSeconds = 15.0;
+      final speedBufferMeters = speedMps * safetyBufferSeconds;
+      // Only expand threshold, never shrink (max 30% increase to avoid overly aggressive triggers)
+      final maxExpansion = effectiveThresholdMeters * 0.3;
+      effectiveThresholdMeters += math.min(speedBufferMeters, maxExpansion);
+    }
+    
+    if (distanceInMeters <= effectiveThresholdMeters) {
       shouldTriggerDestination = true;
       destinationReasonLabel = _destinationName;
+      // Detect if first check is already within threshold
+      if (_proximityConsecutivePasses == 0 && _proximityFirstPassAt == null) {
+        _startedWithinThreshold = true;
+      }
     }
     _logAlarmEvalSnapshot(
       fired: false,
       reason: 'distance_preGate',
       remainingMeters: distanceInMeters,
-      thresholdMeters: (_alarmValue! * 1000),
+      thresholdMeters: effectiveThresholdMeters,
     );
     AppLogger.I.debug('Distance check', domain: 'alarm', context: {
       'dist': distanceInMeters.toStringAsFixed(1),
-      'threshold': (_alarmValue! * 1000).toStringAsFixed(1)
+      'threshold': (_alarmValue! * 1000).toStringAsFixed(1),
+      'effectiveThreshold': effectiveThresholdMeters.toStringAsFixed(1),
+      'speed': speedMps.toStringAsFixed(1)
     });
   } else if (_alarmMode == 'time') {
     // Gate time-based alarms to avoid immediate false triggers when stationary
@@ -192,6 +214,10 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
     } else if (_smoothedETA != null && _smoothedETA! <= (_alarmValue! * 60)) { // alarmValue is in minutes
       shouldTriggerDestination = true;
       destinationReasonLabel = _destinationName;
+      // Detect if first check is already within threshold
+      if (_proximityConsecutivePasses == 0 && _proximityFirstPassAt == null) {
+        _startedWithinThreshold = true;
+      }
     }
     _logAlarmEvalSnapshot(
       fired: false,
@@ -474,6 +500,10 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
           if (_stopsPassesBelow! >= requiredPasses) {
             shouldTriggerDestination = true;
             destinationReasonLabel = _destinationName;
+            // Detect if first check is already within threshold
+            if (_proximityConsecutivePasses == 0 && _proximityFirstPassAt == null) {
+              _startedWithinThreshold = true;
+            }
           }
           _logAlarmEvalSnapshot(
             fired: false,
@@ -491,8 +521,14 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
     if ((!TrackingService.isTestMode || TrackingService.testForceProximityGating) && !(_alarmMode == 'time' && TrackingService.testBypassProximityForTime)) {
       _proximityConsecutivePasses += 1;
       _proximityFirstPassAt ??= DateTime.now();
-      final dwellOk = DateTime.now().difference(_proximityFirstPassAt!) >= _proximityMinDwell;
-      final passesOk = _proximityConsecutivePasses >= _proximityRequiredPasses;
+      
+      // Use reduced requirements if user started within threshold (already at destination)
+      // This allows faster alarm trigger while still preventing GPS jitter false positives
+      final requiredPasses = _startedWithinThreshold ? 2 : _proximityRequiredPasses;
+      final requiredDwell = _startedWithinThreshold ? const Duration(seconds: 2) : _proximityMinDwell;
+      
+      final dwellOk = DateTime.now().difference(_proximityFirstPassAt!) >= requiredDwell;
+      final passesOk = _proximityConsecutivePasses >= requiredPasses;
       if (TrackingService.testForceProximityGating) {
         // ignore: avoid_print
         if (TrackingService.isTestMode) {
@@ -500,6 +536,7 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
             'passes': _proximityConsecutivePasses.toString(),
             'dwellOk': dwellOk.toString(),
             'passesOk': passesOk.toString(),
+            'startedWithin': _startedWithinThreshold.toString(),
           });
         }
       }
@@ -507,14 +544,16 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
         AppLogger.I.debug('Proximity gating', domain: 'alarm', context: {
           'passes': _proximityConsecutivePasses,
           'dwellOk': dwellOk,
-          'needPasses': _proximityRequiredPasses,
-          'needDwellSec': _proximityMinDwell.inSeconds
+          'needPasses': requiredPasses,
+          'needDwellSec': requiredDwell.inSeconds,
+          'startedWithin': _startedWithinThreshold
         });
         _logAlarmGate('proximity', {
           'passes': _proximityConsecutivePasses,
           'dwellOk': dwellOk,
-          'requiredPasses': _proximityRequiredPasses,
-          'requiredDwellSec': _proximityMinDwell.inSeconds,
+          'requiredPasses': requiredPasses,
+          'requiredDwellSec': requiredDwell.inSeconds,
+          'startedWithinThreshold': _startedWithinThreshold,
         });
         // Do not fire yet
         shouldTriggerDestination = false;

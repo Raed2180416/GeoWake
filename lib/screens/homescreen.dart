@@ -391,6 +391,7 @@ class HomeScreenState extends State<HomeScreen> {
 
       final directions = await _fetchDirections(userLat, userLng, destLat, destLng);
       int initialETA = 0;
+      double initialDistanceMeters = 0;
       try {
         final routes = (directions['routes'] as List?) ?? const [];
         if (routes.isNotEmpty) {
@@ -410,8 +411,113 @@ class HomeScreenState extends State<HomeScreen> {
               initialETA = sec.round();
             }
           }
+          // Extract distance from leg
+          final distVal = (leg?['distance'] as Map?)?['value'] as num?;
+          if (distVal != null) {
+            initialDistanceMeters = distVal.toDouble();
+          }
         }
       } catch (_) {}
+      
+      // Compute alarm mode/value before validation
+      String alarmMode = _useDistanceMode ? 'distance' : 'time';
+      double alarmValue;
+      if (_metroMode && _useDistanceMode) {
+        alarmMode = 'stops';
+        alarmValue = _stopsSliderValue;
+      } else {
+        alarmValue = _useDistanceMode ? _distanceSliderValue : _timeSliderValue;
+      }
+      
+      // Validate threshold against actual route metrics and check if already at destination
+      bool alreadyWithinThreshold = false;
+      if (!_metroMode) { // Skip validation for metro/stops mode as it uses different logic
+        if (alarmMode == 'distance') {
+          // alarmValue is in km, initialDistanceMeters is in meters
+          final thresholdMeters = alarmValue * 1000.0;
+          if (initialDistanceMeters > 0) {
+            if (thresholdMeters > initialDistanceMeters) {
+              // Threshold is larger than total distance - invalid
+              if (!mounted) return;
+              _showErrorDialog(
+                "Invalid Threshold",
+                "Your alarm distance (${alarmValue.toStringAsFixed(1)} km) is greater than the distance to your destination (${(initialDistanceMeters / 1000.0).toStringAsFixed(1)} km). Please choose a smaller threshold."
+              );
+              setState(() {
+                _isTracking = false;
+                _isLoading = false;
+              });
+              return;
+            }
+            // Check if we're already within threshold (allow some small margin)
+            final straightLineDistance = Geolocator.distanceBetween(
+              userLat, userLng, destLat, destLng
+            );
+            if (straightLineDistance <= thresholdMeters) {
+              alreadyWithinThreshold = true;
+            }
+          }
+        } else if (alarmMode == 'time') {
+          // alarmValue is in minutes, initialETA is in seconds
+          final thresholdSeconds = alarmValue * 60.0;
+          if (initialETA > 0) {
+            if (thresholdSeconds > initialETA) {
+              // Threshold is larger than total ETA - invalid
+              if (!mounted) return;
+              final etaMinutes = initialETA / 60.0;
+              _showErrorDialog(
+                "Invalid Threshold",
+                "Your alarm time (${alarmValue.toStringAsFixed(0)} min) is greater than the ETA to your destination (${etaMinutes.toStringAsFixed(0)} min). Please choose a smaller threshold."
+              );
+              setState(() {
+                _isTracking = false;
+                _isLoading = false;
+              });
+              return;
+            }
+            // For time mode, check if ETA is already at or below threshold
+            if (initialETA <= thresholdSeconds) {
+              alreadyWithinThreshold = true;
+            }
+          }
+        }
+      }
+      
+      // If already within threshold, show immediate alarm notification
+      if (alreadyWithinThreshold) {
+        if (!mounted) return;
+        final shouldProceed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Already Near Destination'),
+              content: Text(
+                alarmMode == 'distance'
+                    ? 'You are already within ${alarmValue.toStringAsFixed(1)} km of your destination. The alarm will trigger immediately. Do you want to continue?'
+                    : 'Your ETA is already within ${alarmValue.toStringAsFixed(0)} minutes. The alarm will trigger immediately. Do you want to continue?'
+              ),
+              actions: <Widget>[
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.of(context).pop(false),
+                ),
+                TextButton(
+                  child: const Text('Continue'),
+                  onPressed: () => Navigator.of(context).pop(true),
+                ),
+              ],
+            );
+          },
+        ) ?? false;
+        
+        if (!shouldProceed) {
+          setState(() {
+            _isTracking = false;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
       
       final trackingService = TrackingService();
       // Register this route so ActiveRouteManager can snap/switch
@@ -425,16 +531,6 @@ class HomeScreenState extends State<HomeScreen> {
         );
       } catch (e) {
         dev.log('Failed to register route with TrackingService: $e', name: 'HomeScreen');
-      }
-      // Compute alarm mode/value. For metro+stops, use stops-based threshold.
-      String alarmMode = _useDistanceMode ? 'distance' : 'time';
-      double alarmValue;
-      if (_metroMode && _useDistanceMode) {
-        // When metro mode and 'stops' selected, send stops threshold directly
-        alarmMode = 'stops';
-        alarmValue = _stopsSliderValue;
-      } else {
-        alarmValue = _useDistanceMode ? _distanceSliderValue : _timeSliderValue;
       }
 
       await trackingService.startTracking(
