@@ -69,8 +69,17 @@ class RouteModel {
   final String travelMode;  // "DRIVING", "TRANSIT", etc.
   bool isActive;
   final String routeId;     // unique identifier
-  final Map<String, dynamic> originalResponse; // store full API response
+  
+  // MEDIUM-001 FIX: Make originalResponse optional to reduce memory usage
+  // Most of the time we don't need the full API response after parsing
+  Map<String, dynamic>? _originalResponse; // store full API response (optional)
   final List<TransitSwitch> transitSwitches;  // for metro mode
+  
+  // Provide getter that returns empty map if null (for compatibility)
+  Map<String, dynamic> get originalResponse => _originalResponse ?? {};
+  
+  // Allow setting for initial creation, but encourage disposal
+  set originalResponse(Map<String, dynamic>? value) => _originalResponse = value;
 
   RouteModel({
     required this.polylineEncoded,
@@ -82,9 +91,9 @@ class RouteModel {
     required this.travelMode,
     this.isActive = false,
     required this.routeId,
-    required this.originalResponse,
+    Map<String, dynamic>? originalResponse,
     this.transitSwitches = const [],
-  }) : 
+  }) : _originalResponse = originalResponse,
     // CRITICAL INPUT VALIDATION
     assert(polylineEncoded.isNotEmpty, 'Encoded polyline cannot be empty'),
     assert(polylineDecoded.isNotEmpty, 'Decoded polyline must have at least one point'),
@@ -95,6 +104,12 @@ class RouteModel {
     assert(distance <= 40075000, 'distance cannot exceed Earth circumference (40,075 km), got: $distance meters'),
     assert(routeId.isNotEmpty, 'routeId cannot be empty'),
     assert(travelMode.isNotEmpty, 'travelMode cannot be empty');
+  
+  /// Dispose of the large originalResponse to free memory
+  /// Call this once all needed data has been extracted
+  void disposeOriginalResponse() {
+    _originalResponse = null;
+  }
 
   /// Create a copy of this route with updated fields
   RouteModel copyWith({
