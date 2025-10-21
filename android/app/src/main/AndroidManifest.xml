@@ -99,6 +99,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- CRITICAL-002 FIX: Fallback alarm receiver for background service recovery -->
+        <receiver
+            android:name=".FallbackAlarmReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
     <queries>
