@@ -186,4 +186,114 @@ class GeoWakeTweakables {
   /// Duration (in seconds) for splash screen animation.
   /// Original location: lib/screens/splash_screen.dart
   static const int splashScreenAnimationDurationSeconds = 2;
+  
+  // ============================================================================
+  // ROUTE SWITCHING & DEVIATION DETECTION
+  // ============================================================================
+  
+  /// Base deviation threshold (in meters) when online.
+  /// Used to determine if user has deviated from the route.
+  /// Original location: lib/services/deviation_detection.dart
+  static const double deviationThresholdOnlineMeters = 600.0;
+  
+  /// Base deviation threshold (in meters) when offline.
+  /// Higher threshold to account for reduced GPS accuracy.
+  /// Original location: lib/services/deviation_detection.dart
+  static const double deviationThresholdOfflineMeters = 1500.0;
+  
+  /// Base speed threshold (in m/s) for deviation hysteresis.
+  /// Original location: lib/services/deviation_monitor.dart
+  static const double deviationSpeedThresholdBase = 15.0;
+  
+  /// Speed threshold coefficient for deviation detection.
+  /// Multiplied by current speed to get adaptive threshold.
+  /// Original location: lib/services/deviation_monitor.dart
+  static const double deviationSpeedThresholdK = 1.5;
+  
+  /// Hysteresis ratio for deviation threshold.
+  /// Lower threshold uses this ratio of the upper threshold.
+  /// Original location: lib/services/deviation_monitor.dart
+  static const double deviationHysteresisRatio = 0.7;
+  
+  /// Duration to sustain deviation before considering it persistent.
+  /// Original location: lib/services/deviation_monitor.dart
+  static const Duration deviationSustainDuration = Duration(seconds: 5);
+  
+  /// Radius (in meters) for route candidate search.
+  /// Original location: lib/services/active_route_manager.dart
+  static const double routeCandidateSearchRadiusMeters = 1200.0;
+  
+  /// Maximum number of route candidates to consider.
+  /// Original location: lib/services/active_route_manager.dart
+  static const int routeCandidateMaxCount = 3;
+  
+  /// Duration candidate route must be better before switching.
+  /// Original location: lib/services/active_route_manager.dart
+  static const Duration routeSwitchSustainDuration = Duration(seconds: 6);
+  
+  /// Blackout period after route switch before allowing another switch.
+  /// Original location: lib/services/active_route_manager.dart
+  static const Duration routeSwitchBlackoutDuration = Duration(seconds: 5);
+  
+  /// Size of bearing sample window for route validation.
+  /// Original location: lib/services/active_route_manager.dart
+  static const int routeBearingWindowSize = 5;
+  
+  /// Minimum bearing samples required for validation.
+  /// Original location: lib/services/active_route_manager.dart
+  static const int routeBearingMinSamples = 3;
+  
+  /// Search window size for route snap operations.
+  /// Original location: lib/services/active_route_manager.dart
+  static const int routeSnapSearchWindow = 30;
+  
+  // ============================================================================
+  // ALARM DEDUPLICATION
+  // ============================================================================
+  
+  /// Cleanup interval for alarm deduplicator (in minutes).
+  /// Expired entries are cleaned up at this interval.
+  /// Original location: lib/services/alarm_deduplicator.dart
+  static const int alarmDeduplicatorCleanupIntervalMinutes = 10;
+  
+  // ============================================================================
+  // API CLIENT CONFIGURATION
+  // ============================================================================
+  
+  /// Timeout for API authentication requests (in seconds).
+  /// Original location: lib/services/api_client.dart
+  static const int apiAuthTimeoutSeconds = 10;
+  
+  /// Timeout for general API requests (in seconds).
+  /// Original location: lib/services/api_client.dart
+  static const int apiRequestTimeoutSeconds = 15;
+  
+  /// Default token expiration fallback (in hours).
+  /// Used if server doesn't provide expiration time.
+  /// Original location: lib/services/api_client.dart
+  static const int apiTokenDefaultExpirationHours = 24;
+  
+  /// Default place search radius (in meters).
+  /// Original location: lib/services/api_client.dart
+  static const int apiPlaceSearchRadiusMeters = 500;
+  
+  /// Response body preview length for logging.
+  /// Original location: lib/services/api_client.dart
+  static const int apiResponsePreviewLength = 200;
+  
+  // ============================================================================
+  // BACKGROUND SERVICE
+  // ============================================================================
+  
+  /// Recovery attempt interval (in seconds).
+  /// Original location: lib/services/background_service_recovery.dart
+  static const int backgroundServiceRecoveryIntervalSeconds = 30;
+  
+  /// Bootstrap session load timeout (in milliseconds).
+  /// Original location: lib/services/bootstrap_service.dart
+  static const int bootstrapSessionLoadTimeoutMs = 600;
+  
+  /// Bootstrap late recovery timeout (in milliseconds).
+  /// Original location: lib/services/bootstrap_service.dart
+  static const int bootstrapLateRecoveryTimeoutMs = 1500;
 }

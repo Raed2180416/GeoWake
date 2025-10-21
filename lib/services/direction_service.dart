@@ -36,7 +36,11 @@ class DirectionService {
     bool forceRefresh = false,
   }) async {
     // Ensure ApiClient is ready on first run (bootstrap late init may still be running)
-    try { await _apiClient.initialize(); } catch (_) {}
+    try {
+      await _apiClient.initialize();
+    } catch (e) {
+      Log.w('DirectionService', 'API client initialization warning (may already be initialized): $e');
+    }
     // L2 persistent cache check (Hive)
     final origin = LatLng(startLat, startLng);
     final dest = LatLng(endLat, endLng);
@@ -113,11 +117,12 @@ class DirectionService {
           final routes2 = (d2['routes'] as List?) ?? const [];
           final status2 = d2['status'] as String?;
           if (routes2.isEmpty || (status2 != null && status2 != 'OK')) {
-            throw Exception('No feasible route (transit and driving fallback failed)');
+            throw Exception('No route available. Please try a different destination or check your connection.');
           }
           directions = d2; // use fallback
         } else {
-          throw Exception('No feasible route found (routes=${routes.length} status=$status err=$err)');
+          dev.log('Route lookup failed: routes=${routes.length} status=$status err=$err', name: 'DirectionService');
+          throw Exception('Unable to find a route to this destination. Please try a different location.');
         }
       }
 
@@ -164,7 +169,13 @@ class DirectionService {
 
     } catch (e) {
       dev.log("Error fetching directions via API client: $e", name: "DirectionService");
-      throw Exception("Failed to fetch directions: $e");
+      // If it's already a user-friendly exception, rethrow it
+      if (e.toString().contains('No route available') || 
+          e.toString().contains('Unable to find a route')) {
+        rethrow;
+      }
+      // Otherwise, provide a generic user-friendly message
+      throw Exception("Unable to calculate route. Please check your internet connection and try again.");
     }
   }
 

@@ -4,6 +4,7 @@ import 'dart:async';
 // Designed so we can later plug in a richer registry without touching call sites.
 
 import 'metrics.dart';
+import '../log.dart';
 
 class AppMetrics {
   AppMetrics._();
@@ -12,11 +13,19 @@ class AppMetrics {
   MetricsRegistry get _reg => MetricsRegistry.I; // singleton
 
   void inc(String name, {int by = 1}) {
-    try { _reg.counter(name).inc(by); } catch (_) {}
+    try {
+      _reg.counter(name).inc(by);
+    } catch (e) {
+      Log.w('AppMetrics', 'Failed to increment counter "$name": $e');
+    }
   }
 
   void observeDuration(String name, Duration d) {
-    try { _reg.duration(name).record(d); } catch (_) {}
+    try {
+      _reg.duration(name).record(d);
+    } catch (e) {
+      Log.w('AppMetrics', 'Failed to record duration "$name": $e');
+    }
   }
 
   Future<T> time<T>(String baseName, FutureOr<T> Function() fn) async {

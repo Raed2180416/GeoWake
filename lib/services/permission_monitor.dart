@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:synchronized/synchronized.dart';
 import 'dart:developer' as dev;
 import 'navigation_service.dart';
 import 'trackingservice.dart';
@@ -16,6 +17,7 @@ class PermissionMonitor {
   bool _hasShownLocationWarning = false;
   bool _hasShownNotificationWarning = false;
   bool _isMonitoring = false;
+  final _lock = Lock();
   
   /// Start monitoring critical permissions at regular intervals.
   void startMonitoring() {
@@ -46,25 +48,27 @@ class PermissionMonitor {
   
   /// Check all critical permissions and handle revocations.
   Future<void> _checkCriticalPermissions() async {
-    try {
-      // Check location permission
-      final locationStatus = await Permission.location.status;
-      if (!locationStatus.isGranted) {
-        await _handleLocationRevoked();
-      } else {
-        _hasShownLocationWarning = false;
+    await _lock.synchronized(() async {
+      try {
+        // Check location permission
+        final locationStatus = await Permission.location.status;
+        if (!locationStatus.isGranted) {
+          await _handleLocationRevoked();
+        } else {
+          _hasShownLocationWarning = false;
+        }
+        
+        // Check notification permission
+        final notifStatus = await Permission.notification.status;
+        if (!notifStatus.isGranted) {
+          await _handleNotificationRevoked();
+        } else {
+          _hasShownNotificationWarning = false;
+        }
+      } catch (e) {
+        dev.log('Error checking permissions: $e', name: 'PermissionMonitor');
       }
-      
-      // Check notification permission
-      final notifStatus = await Permission.notification.status;
-      if (!notifStatus.isGranted) {
-        await _handleNotificationRevoked();
-      } else {
-        _hasShownNotificationWarning = false;
-      }
-    } catch (e) {
-      dev.log('Error checking permissions: $e', name: 'PermissionMonitor');
-    }
+    });
   }
   
   /// Handle location permission revocation.
