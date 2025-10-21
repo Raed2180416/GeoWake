@@ -338,7 +338,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
             });
             dev.log("Error processing directions data: $e", name: "MapTrackingScreen");
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error processing directions data: $e")),
+              const SnackBar(
+                content: Text("Unable to load route map. Please check your connection and try again."),
+              ),
             );
           }
         }
