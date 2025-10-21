@@ -2,8 +2,16 @@ part of 'package:geowake2/services/trackingservice.dart';
 
 @pragma('vm:entry-point')
 Future<void> _onStop() async {
-  try { WidgetsFlutterBinding.ensureInitialized(); } catch (_) {}
-  try { DartPluginRegistrant.ensureInitialized(); } catch (_) {}
+  try { 
+    WidgetsFlutterBinding.ensureInitialized(); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to initialize WidgetsFlutterBinding during stop', domain: 'tracking', context: {'error': e.toString()});
+  }
+  try { 
+    DartPluginRegistrant.ensureInitialized(); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to initialize DartPluginRegistrant during stop', domain: 'tracking', context: {'error': e.toString()});
+  }
   _positionSubscription?.cancel();
   _positionSubscription = null;
   _gpsCheckTimer?.cancel();
@@ -17,7 +25,9 @@ Future<void> _onStop() async {
   // Dispose orchestrator subscription (dual‑run shadow)
   try {
     await _orchSub?.cancel();
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Failed to cancel orchestrator subscription', domain: 'tracking', context: {'error': e.toString()});
+  }
   _orchSub = null;
   _mgrStateSub?.cancel();
   _mgrStateSub = null;
@@ -34,7 +44,11 @@ Future<void> _onStop() async {
   _reroutePolicy?.dispose();
   _reroutePolicy = null;
   // Stop progress heartbeat
-  try { _progressHeartbeatTimer?.cancel(); } catch (_) {}
+  try { 
+    _progressHeartbeatTimer?.cancel(); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to cancel progress heartbeat timer', domain: 'tracking', context: {'error': e.toString()});
+  }
   _progressHeartbeatTimer = null;
   
   // Explicitly stop any playing alarm and vibration
@@ -56,10 +70,22 @@ Future<void> _onStop() async {
     if (!TrackingService.isTestMode) {
       await NotificationService().cancelJourneyProgress();
     }
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Failed to cancel journey progress notification', domain: 'tracking', context: {'error': e.toString()});
+  }
   // Clear any persisted session state and fast flags to prevent unintended auto-resume on next launch
-  try { await TrackingSessionStateFile.clear(); } catch (_) {}
-  try { final prefs = await SharedPreferences.getInstance(); await prefs.setBool(TrackingSessionStateFile.trackingActiveFlagKey, false); await prefs.setBool(TrackingService.resumePendingFlagKey, false); } catch (_) {}
+  try { 
+    await TrackingSessionStateFile.clear(); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to clear tracking session state file', domain: 'tracking', context: {'error': e.toString()});
+  }
+  try { 
+    final prefs = await SharedPreferences.getInstance(); 
+    await prefs.setBool(TrackingSessionStateFile.trackingActiveFlagKey, false); 
+    await prefs.setBool(TrackingService.resumePendingFlagKey, false); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to clear tracking flags in preferences', domain: 'tracking', context: {'error': e.toString()});
+  }
   TrackingService.autoResumed = false;
   dev.log("Tracking has been fully stopped.", name: "TrackingService");
 }
@@ -67,7 +93,11 @@ Future<void> _onStop() async {
 // Heartbeat timer to refresh progress notification and emit position updates for UI harness
 Timer? _progressHeartbeatTimer;
 void _startProgressHeartbeat(ServiceInstance service) {
-  try { _progressHeartbeatTimer?.cancel(); } catch (_) {}
+  try { 
+    _progressHeartbeatTimer?.cancel(); 
+  } catch (e) {
+    AppLogger.I.warn('Failed to cancel existing progress heartbeat timer', domain: 'tracking', context: {'error': e.toString()});
+  }
   // Use 5 second heartbeat for more aggressive notification persistence
   // This ensures the notification is refreshed frequently even when app is backgrounded
   _progressHeartbeatTimer = Timer.periodic(const Duration(seconds: 5), (_) async {
@@ -103,7 +133,9 @@ void _startProgressHeartbeat(ServiceInstance service) {
       try {
         final bool? isFg = await dynService.isForegroundService();
         shouldElevate = isFg == false;
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.debug('Could not check foreground service status', domain: 'tracking', context: {'error': e.toString()});
+      }
       if (shouldElevate) {
         dev.log('Progress heartbeat detected non-foreground service; re-elevating.', name: 'TrackingService');
         try { 
@@ -113,10 +145,13 @@ void _startProgressHeartbeat(ServiceInstance service) {
           dev.log('Failed to re-elevate service: $e', name: 'TrackingService');
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     
     // Re-post progress notification if tracking is active and not suppressed
     try {
+
       final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
       if (!TrackingService.isTestMode && !suppressed) {
         final snapshot = _buildProgressSnapshot();
@@ -127,7 +162,21 @@ void _startProgressHeartbeat(ServiceInstance service) {
               subtitle: snapshot['subtitle'] as String,
               progress: snapshot['progress'] as double,
             );
-          } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Failed to persist final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
+      if (!TrackingService.isTestMode && !suppressed) {
+        final snapshot = _buildProgressSnapshot();
+        if (snapshot != null) {
+          try {
+            await NotificationService().ProgressSnapshot(
+              title: snapshot['title'] as String,
+              subtitle: snapshot['subtitle'] as String,
+              progress: snapshot['progress'] as double,
+            );', domain: 'tracking', context: {'error': e.toString()});
+
+    }
           try {
             await NotificationService().showJourneyProgress(
               title: snapshot['title'] as String,
@@ -138,9 +187,19 @@ void _startProgressHeartbeat(ServiceInstance service) {
             dev.log('Failed to show progress notification in heartbeat: $e', name: 'TrackingService');
           }
         }
-        try { await NotificationService().ensureProgressNotificationPresent(); } catch (_) {}
+        try {
+
+          await NotificationService().ensureProgressNotificationPresent();
+
+        } catch (e) {
+
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // Emit light-weight position update for diagnostics harness map UI
     try {
       if (_lastProcessedPosition != null) {
@@ -150,7 +209,9 @@ void _startProgressHeartbeat(ServiceInstance service) {
           'ts': DateTime.now().toIso8601String(),
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   });
   dev.log('Progress heartbeat started with 5-second interval', name: 'TrackingService');
 }
@@ -187,19 +248,48 @@ Map<String, dynamic>? _buildProgressSnapshot({ActiveRouteState? stateOverride}) 
 @pragma('vm:entry-point')
 void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) async {
   WidgetsFlutterBinding.ensureInitialized();
-  try { DartPluginRegistrant.ensureInitialized(); } catch (_) {}
+  try {
+
+    DartPluginRegistrant.ensureInitialized();
+
+  } catch (e) {
+
+    AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   if (service is AndroidServiceInstance) {
-    try { service.setAsForegroundService(); } catch (_) {}
+    try {
+
+      service.setAsForegroundService();
+
+    } catch (e) {
+
+      AppLogger.I.debug('Failed to persist service.AsForegroundService();', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // NOTE: We deliberately use a minimal notification here
     // The actual progress notification with action buttons will be shown
     // via NotificationService.showJourneyProgress() which uses ID 888
     // and properly configured PendingIntents for the action buttons
     try {
-    } catch (_) {}
+
+      
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
   try {
+
     await NotificationService().initialize();
-  } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   // Start a light heartbeat to re-post progress notification and emit position updates.
   _startProgressHeartbeat(service);
   // Early fast-flag read when background isolate boots
@@ -233,18 +323,28 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
           service.invoke('sessionInfo', {'empty': true});
         }
       } catch (_) {
-        try { service.invoke('sessionInfo', {'error': true}); } catch (_) {}
+        try { service.invoke('sessionInfo', {'error': true}); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
     });
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 
   // Snapshot effective minSinceStart at start (test override vs thresholds) for consistency
   try {
+
     final thresholds = ThresholdsProvider.current;
     _effectiveMinSinceStart = TrackingService.timeAlarmMinSinceStart != const Duration(seconds: 30)
         ? TrackingService.timeAlarmMinSinceStart
         : thresholds.minSinceStart;
-  } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   
   service.on('stopService').listen((event) {
     service.stopSelf();
@@ -321,7 +421,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
                 // Currently only restore minimal progress-related fields (future: orchestrator internal state)
               });
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
         // Inject metrics if already present (e.g., route registered before startTracking call in tests)
         try {
@@ -332,19 +434,25 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
           if (_stepStopsCumulative.isNotEmpty) {
             _orchestrator!.setTotalStops(_stepStopsCumulative.last);
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
         // Subscribe to events (test parity logging only for now)
         _orchSub ??= _orchestrator!.events$.listen((ev) {
           _handleOrchestratorEvent(service, ev);
         });
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       // If caller requested injected positions, enable before starting stream
       try {
         if (data['useInjectedPositions'] == true) {
           _useInjectedPositions = true;
           _injectedCtrl ??= StreamController<Position>.broadcast();
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
   _destinationAlarmFired = false; // Reset flags for a new trip
   _proximityConsecutivePasses = 0;
   _proximityFirstPassAt = null;
@@ -367,7 +475,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
             progress0to1: 0.0,
           );
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       startLocationStream(service);
     }
   });
@@ -388,9 +498,13 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
           'count': _stepStopsCumulative.length,
           'totalStops': _stepStopsCumulative.last,
           'source': 'injected',
-        }); } catch (_) {}
+        }); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   });
   service.on('applyScenarioOverrides').listen((event) {
     try {
@@ -422,7 +536,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
             'count': _stepStopsCumulative.length,
             'totalStops': _stepStopsCumulative.last,
             'source': 'scenario',
-          }); } catch (_) {}
+          }); } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
       }
 
@@ -451,7 +567,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
           AppLogger.I.debug('Scenario milestones received', domain: 'scenario', context: {
             'count': _scenarioMilestones.length,
           });
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       } else {
         _scenarioMilestones = const [];
       }
@@ -469,15 +587,21 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
             if (_scenarioTotalDurationSeconds != null) 'totalSeconds': _scenarioTotalDurationSeconds,
             if (_scenarioRunConfig != null) 'runConfig': _scenarioRunConfig,
           });
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
 
-      try { service.invoke('scenarioOverridesApplied', {'ok': true}); } catch (_) {}
+      try { service.invoke('scenarioOverridesApplied', {'ok': true}); } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     } catch (e, st) {
       dev.log('Failed to apply scenario overrides: $e', name: 'TrackingService', stackTrace: st);
       try { service.invoke('scenarioOverridesApplied', {
         'error': e.toString(),
-      }); } catch (_) {}
+      }); } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
   });
   // Inject a single position sample
@@ -500,7 +624,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
         speedAccuracy: (data['speedAccuracy'] as num?)?.toDouble() ?? 1.0,
       );
       _injectedCtrl!.add(p);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   });
 
   // Handle data passed directly (for test mode)
@@ -562,13 +688,17 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
         _orchSub ??= _orchestrator!.events$.listen((ev) {
           _handleOrchestratorEvent(service, ev);
         });
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       try {
         if (initialData['useInjectedPositions'] == true) {
           _useInjectedPositions = true;
           _injectedCtrl ??= StreamController<Position>.broadcast();
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
   _destinationAlarmFired = false;
   _firedEventIndexes.clear();
     // Reset time-alarm gating state
@@ -591,7 +721,15 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
     // Then stop all tracking
   await _onStop();
     // Persist suppression to silence any late progress updates from background side
-    try { await TrackingService.setProgressSuppressed(true); } catch (_) {}
+    try {
+
+      await TrackingService.setProgressSuppressed(true);
+
+    } catch (e) {
+
+      AppLogger.I.warn('Failed to persist await TrackingService.ProgressSuppressed(true);', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     
     if(event?['stopSelf'] == true){
        service.stopSelf();
@@ -609,7 +747,9 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
       } catch (e) {
         dev.log('Error stopping vibration: $e', name: 'TrackingService');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   });
 
   dev.log("Background Service Instance Started", name: "TrackingService");
@@ -617,6 +757,7 @@ void _onStart(ServiceInstance service, {Map<String, dynamic>? initialData}) asyn
 
 SnappedPosition? _currentSnappedPositionForOrchestrator(Position position) {
   try {
+
     if (_lastActiveState != null) {
       int segmentIndex = 0;
       try {
@@ -625,7 +766,12 @@ SnappedPosition? _currentSnappedPositionForOrchestrator(Position position) {
           orElse: () => _registry.entries.first,
         );
         segmentIndex = entry.lastSnapIndex ?? segmentIndex;
-      } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
       return SnappedPosition(
         lat: _lastActiveState!.snapped.latitude,
         lng: _lastActiveState!.snapped.longitude,
@@ -659,7 +805,9 @@ SnappedPosition? _currentSnappedPositionForOrchestrator(Position position) {
         segmentIndex: snap.segmentIndex,
       );
     }
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
   return null;
 }
 
@@ -676,8 +824,14 @@ bool _shouldEnableProximityGating() {
 void _syncOrchestratorGating() {
   if (_orchestrator == null) return;
   try {
+
     _orchestrator!.setProximityGatingEnabled(_shouldEnableProximityGating());
-  } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.debug('Failed to persist _orchestrator!.ProximityGatingEnabled(_shouldEnableProximityGating());', domain: 'tracking', context: {'error': e.toString()});
+
+  }
 }
 
 Map<String, dynamic>? _asStringKeyedMap(dynamic raw) {
@@ -710,7 +864,9 @@ void _restoreOrchestratorStateFrom(Map<String, dynamic> state) {
     if (etaSamples is num) {
       _etaSamples = etaSamples.toInt();
     }
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 extension TrackingServiceRouteOps on TrackingService {
@@ -826,6 +982,7 @@ extension TrackingServiceRouteOps on TrackingService {
                 );
                 if (TrackingService.enablePersistence) {
                   try {
+
                     TrackingService._persistence ??= PersistenceManager(baseDir: Directory.systemTemp.createTempSync());
                     final snap = TrackingSnapshot(
                       version: TrackingSnapshot.currentVersion,
@@ -848,7 +1005,33 @@ extension TrackingServiceRouteOps on TrackingService {
                     // Fire and forget
                     // ignore: discarded_futures
                     TrackingService._persistence!.save(snap);
-                  } catch (_) {}
+
+                  } catch (e) {
+
+                    AppLogger.I.warn('Failed to persist TrackingService._ence ??= PersistenceManager(baseDir: Directory.systemTemp.createTempSync());
+                    final snap = TrackingSnapshot(
+                      version: TrackingSnapshot.currentVersion,
+                      timestampMs: DateTime.now().millisecondsSinceEpoch,
+                      progress0to1: frac.isFinite ? frac : null,
+                      etaSeconds: _smoothedETA,
+                      distanceTravelledMeters: _distanceTravelledMeters,
+                      destinationLat: _destination?.latitude,
+                      destinationLng: _destination?.longitude,
+                      destinationName: _destinationName,
+                      activeRouteKey: s.activeKey,
+                      fallbackScheduledEpochMs: TrackingService._fallbackManager?.reason != null ? 0 : null,
+                      lastDestinationAlarmAtMs: _destinationAlarmFired ? DateTime.now().millisecondsSinceEpoch : null,
+                      smoothedHeadingDeg: _smoothedHeadingDeg,
+                      timeEligible: _timeAlarmEligible,
+                      orchestratorState: _orchestrator != null
+                          ? Map<String, dynamic>.from(_orchestrator!.toState())
+                          : null,
+                    );
+                    // Fire and forget
+                    // ignore: discarded_futures
+                    TrackingService._ence!.save(snap);', domain: 'tracking', context: {'error': e.toString()});
+
+                  }
                 }
                 // Tighten fallback schedule based on ETA (1.5x smoothed ETA) with debounce
                 try {
@@ -866,8 +1049,12 @@ extension TrackingServiceRouteOps on TrackingService {
                       }
                     }
                   }
-                } catch (_) {}
-              } catch (_) {}
+                } catch (e) {
+                  AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+                }
+              } catch (e) {
+                AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+              }
             }
           }
   }
@@ -877,19 +1064,31 @@ extension TrackingServiceRouteOps on TrackingService {
           final snap = SnapToRouteEngine.snap(point: _lastProcessedPosition!, polyline: entry.points, hintIndex: entry.lastSnapIndex);
           offForDeviation = snap.lateralOffsetMeters;
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       _devMonitor?.ingest(offsetMeters: offForDeviation, speedMps: spd);
       _lastActiveState = s;
       if (!TrackingService.isTestMode) {
         final data = _buildProgressSnapshot(stateOverride: s);
         if (data != null) {
           try {
+
             unawaited(NotificationService().persistProgressSnapshot(
               title: data['title'] as String,
               subtitle: data['subtitle'] as String,
               progress: data['progress'] as double,
             ));
-          } catch (_) {}
+
+          } catch (e) {
+
+            AppLogger.I.debug('Failed to persist unawaited(NotificationService().ProgressSnapshot(
+              title: data['title'] as String,
+              subtitle: data['subtitle'] as String,
+              progress: data['progress'] as double,
+            ));', domain: 'tracking', context: {'error': e.toString()});
+
+          }
         }
       }
       // Update route state in memory but let the timer handle notification updates
@@ -898,8 +1097,14 @@ extension TrackingServiceRouteOps on TrackingService {
     _mgrSwitchSub ??= _activeManager!.switchStream.listen((e) {
       _routeSwitchCtrl.add(e);
       try {
+
         _devMonitor?.reset();
-      } catch (_) {}
+
+      } catch (e) {
+
+        AppLogger.I.debug('Failed to persist _devMonitor?.re();', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     });
     _devSub ??= _devMonitor!.stream.listen((ds) async {
       double off = _lastActiveState?.offsetMeters ?? double.infinity;
@@ -909,7 +1114,9 @@ extension TrackingServiceRouteOps on TrackingService {
           final snap = SnapToRouteEngine.snap(point: _lastProcessedPosition!, polyline: entry.points, hintIndex: entry.lastSnapIndex);
           off = snap.lateralOffsetMeters;
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
 
       // In tests, allow immediate local switch in the 100–150m band without waiting for sustain
       if (!ds.sustained) {
@@ -933,7 +1140,9 @@ extension TrackingServiceRouteOps on TrackingService {
                 return;
               }
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
         // Not sustained and not in immediate switch band
         return;
@@ -964,7 +1173,9 @@ extension TrackingServiceRouteOps on TrackingService {
               _routeSwitchCtrl.add(RouteSwitchEvent(fromKey: fromKey, toKey: best.key, at: DateTime.now()));
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
         return; // Do not trigger reroute
       }
       // >150m: allow reroute policy to decide (subject to cooldown/online)
@@ -978,7 +1189,9 @@ extension TrackingServiceRouteOps on TrackingService {
           'shouldReroute': r.shouldReroute,
           'at': r.at.toIso8601String(),
           'ts': startTs.toIso8601String(),
-        }); } catch (_) {}
+        }); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
         if (TrackingService.isTestMode) {
           _rerouteCtrl.add(r);
           return; // avoid network in tests
@@ -1012,12 +1225,16 @@ extension TrackingServiceRouteOps on TrackingService {
             'phase': 'applied',
             'source': res.source,
             'latencyMs': DateTime.now().difference(startTs).inMilliseconds,
-          }); } catch (_) {}
+          }); } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         } catch (e) {
           try { AppLogger.I.warn('REROUTE_DECISION', domain: 'reroute', context: {
             'phase': 'error',
             'error': e.toString(),
-          }); } catch (_) {}
+          }); } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         } finally {
           _rerouteInFlight = false;
         }
@@ -1059,7 +1276,9 @@ extension TrackingServiceRouteOps on TrackingService {
       } else if (route['overview_polyline'] != null && route['overview_polyline']['points'] != null) {
         points = decodePolyline(route['overview_polyline']['points'] as String);
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // Build step bounds and stops
     try {
       final m = TransferUtils.buildStepBoundariesAndStops(directions);
@@ -1130,13 +1349,21 @@ extension TrackingServiceRouteOps on TrackingService {
                     boarding = LatLng(lat, lng);
                   }
                 }
-              } catch (_) {}
+              } catch (e) {
+                AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+              }
               // Fallback to first point of step polyline
               if (boarding == null) {
                 try {
+
                   final pts = decodePolyline((step['polyline'] as Map<String, dynamic>)['points'] as String);
                   if (pts.isNotEmpty) boarding = pts.first;
-                } catch (_) {}
+
+                } catch (e) {
+
+                  AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+                }
               }
               break outer;
             }
@@ -1191,8 +1418,14 @@ Future<void> startLocationStream(ServiceInstance service) async {
   gpsDropoutBuffer = policy.gpsDropoutBuffer;
   if (_reroutePolicy != null && !TrackingService.isTestMode) {
     try {
+
       _reroutePolicy!.setCooldown(policy.rerouteCooldown);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.debug('Failed to persist _reroutePolicy!.Cooldown(policy.rerouteCooldown);', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
   
   LocationSettings settings = LocationSettings(
@@ -1242,7 +1475,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
   _smoothedHeadingDeg = _headingSmoother.update(position.heading, nowTs, speedMps: position.speed);
         AppMetrics.I.inc('heading_samples');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // Track movement distance since start for time-alarm eligibility
     try {
       if (_startedAt == null) {
@@ -1260,7 +1495,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
         );
         _distanceTravelledMeters = d;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
 
     if (_fusionActive) {
       _sensorFusionManager?.stopFusion();
@@ -1284,7 +1521,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
           'mode': curMode,
           'initial': true,
           'ts': DateTime.now().toIso8601String(),
-        }); } catch (_) {}
+        }); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       } else if (TrackingService._lastMovementModeLogged != curMode) {
         final prev = TrackingService._lastMovementModeLogged;
         TrackingService._lastMovementModeLogged = curMode;
@@ -1292,7 +1531,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
           'from': prev,
           'to': curMode,
           'ts': DateTime.now().toIso8601String(),
-        }); } catch (_) {}
+        }); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
       final repSpeed = _movementClassifier.representativeSpeed();
       _lastEtaResult = _etaEngine.update(
@@ -1337,7 +1578,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
                 'label': ev.label,
                 'state': 'scheduled',
                 'distanceToEvent': distanceToEvent,
-              }); } catch (_) {}
+              }); } catch (e) {
+                AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+              }
             }
             if (distanceToEvent <= 0 && TrackingService._transferAlertsScheduled.contains(ev.meters) && !TrackingService._transferAlertsFired.contains(ev.meters)) {
               TrackingService._transferAlertsFired.add(ev.meters);
@@ -1345,7 +1588,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
                 'eventMeters': ev.meters,
                 'label': ev.label,
                 'state': 'fire',
-              }); } catch (_) {}
+              }); } catch (e) {
+                AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+              }
             }
         }
       }
@@ -1360,6 +1605,7 @@ Future<void> startLocationStream(ServiceInstance service) async {
 
     // Dual‑run orchestrator feed (shadow mode)
     try {
+
       if (_orchestrator != null) {
         final sample = LocationSample(
           lat: position.latitude,
@@ -1374,9 +1620,16 @@ Future<void> startLocationStream(ServiceInstance service) async {
         try {
           final snapped = _currentSnappedPositionForOrchestrator(position);
           _orchestrator!.update(sample: sample, snapped: snapped);
-        } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
 
     // Feed sample into idle power scaler (was previously missing, preventing idle transitions in tests)
     try {
@@ -1389,7 +1642,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
       if (TrackingService.isTestMode) {
         dev.log('TEST-PIPELINE: idleScaler feed isIdle=${_idleScaler?.isIdle}', name: 'TrackingService');
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
 
     final mode = _idleScaler!.isIdle ? 'idle' : 'active';
     if (mode != _latestPowerMode) {
@@ -1415,7 +1670,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
           dev.log('Time alarm is now eligible (live update)', name: 'TrackingService');
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
 
     // --- ADAPTIVE ALARM EVALUATION SCHEDULING ---
     try {
@@ -1466,7 +1723,15 @@ Future<void> startLocationStream(ServiceInstance service) async {
                   swEval2.stop();
                   core_metrics.MetricsRegistry().observe('alarm.eval.ms', swEval2.elapsedMilliseconds.toDouble());
                   core_metrics.MetricsRegistry().inc('alarm.eval.count');
-                  try { MetricsRegistry.I.counter('alarm.eval.count').inc(); } catch (_) {}
+                  try {
+
+                    MetricsRegistry.I.counter('alarm.eval.count').inc();
+
+                  } catch (e) {
+
+                    AppLogger.I.error('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+                  }
                   AppMetrics.I.observeDuration('alarm_eval', swEval2.elapsed);
                   AppMetrics.I.inc('alarm_eval_runs');
                 }
@@ -1475,10 +1740,20 @@ Future<void> startLocationStream(ServiceInstance service) async {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
 
     // Progress instrumentation sample
-    try { _logProgressSample(position); } catch (_) {}
+    try {
+
+      _logProgressSample(position);
+
+    } catch (e) {
+
+      AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     service.invoke("updateLocation", {
       "latitude": position.latitude,
       "longitude": position.longitude,
@@ -1486,20 +1761,60 @@ Future<void> startLocationStream(ServiceInstance service) async {
   "heading": _smoothedHeadingDeg,
     });
     // Expose adaptive scheduling interval for diagnostics (ignored in tests)
-    try { core_metrics.MetricsRegistry().gauge('alarm.eval.desired_interval_ms', _lastDesiredEvalInterval.inMilliseconds.toDouble()); } catch (_) {}
+    try {
+
+      core_metrics.MetricsRegistry().gauge('alarm.eval.desired_interval_ms', _lastDesiredEvalInterval.inMilliseconds.toDouble());
+
+    } catch (e) {
+
+      AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     swPipeline.stop();
     core_metrics.MetricsRegistry().observe('location.pipeline.ms', swPipeline.elapsedMilliseconds.toDouble());
     core_metrics.MetricsRegistry().inc('location.updates');
-    try { MetricsRegistry.I.counter('location.updates').inc(); } catch (_) {}
+    try {
+
+      MetricsRegistry.I.counter('location.updates').inc();
+
+    } catch (e) {
+
+      AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     if (TrackingService.isTestMode) {
       // Auxiliary counter for diagnostics (can be removed after stabilization)
-      try { core_metrics.MetricsRegistry().inc('location.updates.test'); } catch (_) {}
-      try { MetricsRegistry.I.counter('location.updates.test').inc(); } catch (_) {}
+      try {
+
+        core_metrics.MetricsRegistry().inc('location.updates.test');
+
+      } catch (e) {
+
+        AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
+      try {
+
+        MetricsRegistry.I.counter('location.updates.test').inc();
+
+      } catch (e) {
+
+        AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     }
     core_metrics.MetricsRegistry().gauge('eta.seconds', _smoothedETA ?? -1);
   if (_smoothedHeadingDeg != null) {
       // Use legacy registry gauge name convention by reusing metrics registry counters
-      try { core_metrics.MetricsRegistry().gauge('heading.deg', _smoothedHeadingDeg!); } catch (_) {}
+      try {
+
+        core_metrics.MetricsRegistry().gauge('heading.deg', _smoothedHeadingDeg!);
+
+      } catch (e) {
+
+        AppLogger.I.debug('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     }
     AppMetrics.I.observeDuration('location_pipeline', swPipeline.elapsed);
     AppMetrics.I.inc('location_updates');
@@ -1543,7 +1858,9 @@ Future<void> startLocationStream(ServiceInstance service) async {
           dev.log('Time alarm is now eligible', name: 'TrackingService');
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   });
 }
 

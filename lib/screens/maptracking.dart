@@ -104,10 +104,17 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
     dev.log('GW_RESUME_ROUTE_FETCH start', name: 'MapTrackingScreen');
     final int tStart = DateTime.now().millisecondsSinceEpoch;
     try {
+
       final pos = _currentUserLocation;
       Position? fresh;
       if (pos == null) {
-        try { fresh = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high); } catch (_) {}
+        try { fresh = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
       }
       final startLat = pos?.latitude ?? fresh?.latitude ?? _destinationLat!; // fall back to dest (degenerate) if no loc yet
       final startLng = pos?.longitude ?? fresh?.longitude ?? _destinationLng!;
@@ -557,7 +564,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   Future<void> _adjustCamera(double userLat, double userLng) async {

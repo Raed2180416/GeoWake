@@ -67,7 +67,9 @@ void _emitLogSchemaOnce() {
         'stopsHeuristicMPerStop': TrackingService.stopsHeuristicMetersPerStop,
       }
     });
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 void _logEvalInterval({
@@ -90,7 +92,9 @@ void _logEvalInterval({
       'volatility': volatility,
       'immediateHint': immediateHint,
     });
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 void _logAlarmEvalSnapshot({
@@ -128,16 +132,26 @@ void _logAlarmEvalSnapshot({
         'message': 'ALARM_EVAL',
         'context': snap.toJson()
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // Persist (fire or not) so we always have the latest evaluation context after crash/kill.
     TrackingService._persistLastAlarmEval(snap.toJson());
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 void _logAlarmGate(String gate, Map<String, Object?> ctx) {
   try {
+
     AppLogger.I.debug('ALARM_GATE:$gate', domain: 'alarm', context: ctx);
-  } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   try {
     FlutterBackgroundService().invoke('logTail', {
       'level': 'DEBUG',
@@ -145,7 +159,9 @@ void _logAlarmGate(String gate, Map<String, Object?> ctx) {
       'message': 'ALARM_GATE:$gate',
       'context': ctx
     });
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 void _logAlarmFire(String path, {double? remainingMeters, double? remainingStops, double? etaSeconds}) {
@@ -174,8 +190,12 @@ void _logAlarmFire(String path, {double? remainingMeters, double? remainingStops
           'preBoardingFired': _preBoardingAlertFired,
         }
       });
-    } catch (_) {}
-  } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }
 
 // (removed) Placeholder for stops integrity previously unused
@@ -227,5 +247,7 @@ void _logProgressSample(Position p) {
       });
     }
     _progressSampleCounter += 1;
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 }

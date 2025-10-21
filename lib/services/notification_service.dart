@@ -103,7 +103,15 @@ class NotificationService {
     try { await AlarmPlayer.stop(); } catch (e) {
       dev.log('AlarmPlayer.stop failed: $e', name: 'NotificationService');
     }
-    try { await stopVibration(); } catch (_) {}
+    try {
+
+      await stopVibration();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     try { await _notificationsPlugin.cancel(_alarmNotificationId); } catch (e) {
       dev.log('Cancel alarm notification failed: $e', name: 'NotificationService');
     }
@@ -144,20 +152,52 @@ class NotificationService {
       onDidReceiveNotificationResponse: (response) async {
         dev.log('Notification response: actionId=${response.actionId}, payload=${response.payload}', name: 'NotificationService');
         if (response.actionId == 'STOP_ALARM') {
-          try { await AlarmPlayer.stop(); } catch (_) {}
-          try { FlutterBackgroundService().invoke('stopAlarm'); } catch (_) {}
+          try {
+
+            await AlarmPlayer.stop();
+
+          } catch (e) {
+
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+          }
+          try {
+
+            FlutterBackgroundService().invoke('stopAlarm');
+
+          } catch (e) {
+
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+          }
           return;
         }
         if (response.actionId == 'END_TRACKING') {
           // Delegate to native Android handler for reliability
           dev.log('END_TRACKING action - delegating to native handler', name: 'NotificationService');
-          try { await _alarmMethodChannel.invokeMethod('handleEndTracking'); } catch (_) {}
+          try {
+
+            await _alarmMethodChannel.invokeMethod('handleEndTracking');
+
+          } catch (e) {
+
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+          }
           return;
         }
         if (response.actionId == 'IGNORE_TRACKING') {
           // Delegate to native Android handler for reliability
           dev.log('IGNORE_TRACKING action - delegating to native handler', name: 'NotificationService');
-          try { await _alarmMethodChannel.invokeMethod('handleIgnoreTracking'); } catch (_) {}
+          try {
+
+            await _alarmMethodChannel.invokeMethod('handleIgnoreTracking');
+
+          } catch (e) {
+
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+          }
           return;
         }
         if ((response.actionId == null || response.actionId!.isEmpty) && response.payload == 'open_tracking') {
@@ -240,7 +280,15 @@ class NotificationService {
     // Test-mode observability: always record, and call optional hook when present
     if (isTestMode || testOnShowWakeUpAlarm != null) {
       if (testOnShowWakeUpAlarm != null) {
-        try { await testOnShowWakeUpAlarm!(title, body, allowContinueTracking); } catch (_) {}
+        try {
+
+          await testOnShowWakeUpAlarm!(title, body, allowContinueTracking);
+
+        } catch (e) {
+
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+        }
       }
       try {
         testRecordedAlarms.add({
@@ -249,7 +297,9 @@ class NotificationService {
           'allow': allowContinueTracking,
           'ts': DateTime.now().toIso8601String(),
         });
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
 
     // If tests explicitly disabled platform behavior, skip showing.
@@ -389,7 +439,15 @@ class NotificationService {
     final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
     if (suppressed) {
       // If user chose ignore, ensure any existing notification is cancelled so it slides away.
-      try { await cancelJourneyProgress(); } catch (_) {}
+      try {
+
+        await cancelJourneyProgress();
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
       return;
     }
     
@@ -478,9 +536,15 @@ class NotificationService {
     final nav = NavigationService.navigatorKey.currentState;
     if (nav == null) {
       try {
+
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('pending_home_after_stop', true);
-      } catch (_) {}
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
       return;
     }
     if (!nav.mounted) {
@@ -731,38 +795,78 @@ class NotificationService {
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse response) async {
   try {
+
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
-  } catch (_) {}
+
+  } catch (e) {
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   dev.log('BG notification response: actionId=${response.actionId}, payload=${response.payload}', name: 'NotificationService');
   if (response.actionId == 'STOP_ALARM') {
-    try { await AlarmPlayer.stop(); } catch (_) {}
-    try { FlutterBackgroundService().invoke('stopAlarm'); } catch (_) {}
+    try {
+
+      await AlarmPlayer.stop();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
+    try {
+
+      FlutterBackgroundService().invoke('stopAlarm');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     return;
   }
   if (response.actionId == 'END_TRACKING') {
     // Delegate to native Android handler for reliability
     dev.log('BG: END_TRACKING action - delegating to native handler', name: 'NotificationService');
-    try { 
+    try {
+
       const channel = MethodChannel('com.example.geowake2/alarm');
-      await channel.invokeMethod('handleEndTracking'); 
-    } catch (_) {}
+      await channel.invokeMethod('handleEndTracking');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     return;
   }
   if (response.actionId == 'IGNORE_TRACKING') {
     // Delegate to native Android handler for reliability
     dev.log('BG: IGNORE_TRACKING action - delegating to native handler', name: 'NotificationService');
-    try { 
+    try {
+
       const channel = MethodChannel('com.example.geowake2/alarm');
-      await channel.invokeMethod('handleIgnoreTracking'); 
-    } catch (_) {}
+      await channel.invokeMethod('handleIgnoreTracking');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     return;
   }
   if ((response.actionId == null || response.actionId!.isEmpty) && response.payload == 'open_tracking') {
     try {
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('pending_tracking_launch', true);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     return;
   }
 }

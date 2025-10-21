@@ -290,7 +290,9 @@ class TransferUtils {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     return null;
   }
 

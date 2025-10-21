@@ -137,8 +137,24 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Stop permission monitoring
     _permissionMonitor.stopMonitoring();
     // As a final cleanup when the app is truly closing, close Hive.
-    try { Hive.close(); } catch (_) {}
-    try { _bootstrapSub?.cancel(); } catch (_) {}
+    try {
+
+      Hive.close();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
+    try {
+
+      _bootstrapSub?.cancel();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     super.dispose();
   }
 

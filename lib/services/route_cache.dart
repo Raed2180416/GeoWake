@@ -167,7 +167,9 @@ class RouteCache {
               oldest = ts;
               oldestKey = k as String;
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
         if (oldestKey != null) {
           await _box!.delete(oldestKey);

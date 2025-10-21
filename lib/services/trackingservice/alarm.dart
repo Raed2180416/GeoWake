@@ -309,7 +309,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
               'boardingLat': _firstTransitBoarding!.latitude,
               'boardingLng': _firstTransitBoarding!.longitude,
             });
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
         if (d <= windowMeters) {
           try {
@@ -336,11 +338,17 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
                 'distanceMeters': d,
                 'windowMeters': windowMeters,
               });
-            } catch (_) {}
-          } catch (_) {}
+            } catch (e) {
+              AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+            }
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   // Also check upcoming route events (transfer/mode change) with the same threshold semantics
@@ -352,7 +360,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
         'firedEvents': _firedEventIndexes.length,
         'remainingEvents': _routeEvents.length - _firedEventIndexes.length,
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     
     // We need progressMeters along the active route; grab latest from manager by listening state earlier.
     // Since we don't keep state here, approximate using last known remaining distance if available via registry lastProgress.
@@ -375,7 +385,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
             // take the larger to avoid regressions
             progressMeters = approx > progressMeters ? approx : progressMeters;
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
       if (progressMeters != null) {
         final thresholdMeters = _alarmMode == 'distance' ? (_alarmValue! * 1000.0) : null;
@@ -568,7 +580,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
               pm = straightCovered;
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
         if (pm != null) {
           double progressStops = 0.0;
           for (int i = 0; i < _stepBoundsMeters.length; i++) {
@@ -603,7 +617,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
           );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   if (shouldTriggerDestination && !_destinationAlarmFired) {
@@ -682,7 +698,9 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
       );
       TrackingService.sessionStore!.save(snap);
     }
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
   
   // VERIFICATION: Periodically verify switch point alarm coverage
   // Run this check every 10th alarm evaluation to avoid excessive overhead
@@ -723,7 +741,9 @@ Future<void> _dispatchAlarmNotification(
         'error': e.toString(),
         'key': dedupeKey,
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 }
 
@@ -750,7 +770,9 @@ Future<void> _handleDestinationAlarmTrigger(
       'etaSec': etaSeconds,
       'remainingMeters': remainingMeters,
     });
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 
   _logAlarmFire(source, remainingMeters: remainingMeters, etaSeconds: etaSeconds);
 
@@ -761,7 +783,9 @@ Future<void> _handleDestinationAlarmTrigger(
       MetricsRegistry.I.counter('alarm.orchestrator.triggered').inc();
     }
     MetricsRegistry.I.counter('alarm.triggered').inc();
-  } catch (_) {}
+  } catch (e) {
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+  }
 
   final title = 'Wake Up! ';
   final body = destinationReasonLabel != null
@@ -777,8 +801,18 @@ Future<void> _handleDestinationAlarmTrigger(
   );
 
   try {
+
+
     TrackingService._fallbackManager?.cancel(reason: 'destination_alarm');
-  } catch (_) {}
+
+
+  } catch (e) {
+
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+
+  }
 
   // Stop the service to save battery once destination alarm fires
   try {
@@ -841,7 +875,9 @@ void _handleOrchestratorEvent(ServiceInstance service, AlarmEvent ev) {
             'metersFromStart': metersFromStart,
             'ts': DateTime.now().toIso8601String(),
           });
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
         () async {
           await _dispatchAlarmNotification(
             service,
@@ -863,7 +899,9 @@ void _handleOrchestratorEvent(ServiceInstance service, AlarmEvent ev) {
             AppLogger.I.debug('Time eligibility updated from orchestrator', domain: 'alarm', context: {
               'eligible': timeEligible,
             });
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
         break;
       default:
@@ -876,6 +914,8 @@ void _handleOrchestratorEvent(ServiceInstance service, AlarmEvent ev) {
         'error': e.toString(),
       });
       dev.log('Orchestrator event handling error: $e', name: 'TrackingService', error: e, stackTrace: st);
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 }

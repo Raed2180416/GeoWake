@@ -25,7 +25,15 @@ class PersistenceManager {
       await _tmpFile.rename(_file.path);
     } catch (_) {
       // Best effort; swallow errors (could add logging hook later)
-      try { if (await _tmpFile.exists()) await _tmpFile.delete(); } catch (_) {}
+      try {
+
+        if (await _tmpFile.exists()) await _tmpFile.delete();
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     }
   }
 
@@ -40,6 +48,14 @@ class PersistenceManager {
   }
 
   Future<void> clear() async {
-    try { if (await _file.exists()) await _file.delete(); } catch (_) {}
+    try {
+
+      if (await _file.exists()) await _file.delete();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
 }

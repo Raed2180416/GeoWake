@@ -77,10 +77,16 @@ class TrackingService {
   static void Function(Position p)? injectPositionForTests = (Position p) {
     if (!TrackingService.isTestMode) return; // guard: never mutate prod pipeline
     try {
+
       _useInjectedPositions = true;
       _injectedCtrl ??= StreamController<Position>.broadcast();
       _injectedCtrl!.add(p);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   };
   static bool useOrchestratorForDestinationAlarm = false; // feature flag
   static SessionStateStore? sessionStore; // can be injected for persistence
@@ -130,7 +136,9 @@ class TrackingService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_alarmEvalPrefsKey, jsonEncode(json));
     } catch (e) {
-      try { AppLogger.I.warn('Persist alarm eval prefs failed', domain: 'alarm', context: {'err': e.toString()}); } catch (_) {}
+      try { AppLogger.I.warn('Persist alarm eval prefs failed', domain: 'alarm', context: {'err': e.toString()}); } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
     // File redundancy (slower but survives prefs corruption) – reuse app support dir
     try {
@@ -139,7 +147,9 @@ class TrackingService {
       final f = File('${dir.path}/$_alarmEvalFileName');
       await f.writeAsString(jsonEncode(json), flush: true);
     } catch (e) {
-      try { AppLogger.I.warn('Persist alarm eval file failed', domain: 'alarm', context: {'err': e.toString()}); } catch (_) {}
+      try { AppLogger.I.warn('Persist alarm eval file failed', domain: 'alarm', context: {'err': e.toString()}); } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
   }
 
@@ -154,7 +164,9 @@ class TrackingService {
         _lastAlarmEvalCache = decoded;
         return decoded;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // Fallback to file
     try {
       final dir = await getApplicationSupportDirectory();
@@ -165,7 +177,9 @@ class TrackingService {
         _lastAlarmEvalCache = decoded;
         return decoded;
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     return null;
   }
 
@@ -227,14 +241,18 @@ class TrackingService {
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       // Emit ETA_SOURCE separately (once)
       if (!TrackingService._etaSourceLogged) {
         TrackingService._etaSourceLogged = true;
         try { AppLogger.I.info('ETA_SOURCE', domain: 'eta', context: {
           'variant': etaVariant,
           'etaSec': firstEtaSec,
-        }); } catch (_) {}
+        }); } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
       AppLogger.I.info('SESSION_COMMIT', domain: 'session', context: {
         'routeKey': routeKey,
@@ -253,7 +271,9 @@ class TrackingService {
         'ts': DateTime.now().toIso8601String(),
       });
       TrackingService._sessionCommitLogged = true;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   void _logStopsIntegrityIfNeeded() {
@@ -264,7 +284,9 @@ class TrackingService {
         'hasBounds': _stepBoundsMeters.isNotEmpty,
         'transitMode': _transitMode,
       });
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   @visibleForTesting
@@ -341,7 +363,9 @@ class TrackingService {
           AppLogger.I.debug('Scenario milestones applied (test mode)', domain: 'scenario', context: {
             'count': milestones.length,
           });
-        } catch (_) {}
+        } catch (e) {
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+        }
       }
       _orchestrator?.setRouteEvents(events);
       return;
@@ -354,7 +378,9 @@ class TrackingService {
         AppLogger.I.warn('Failed to send scenario overrides', domain: 'scenario', context: {
           'error': e.toString(),
         });
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
   }
   // If user chooses "Ignore" action we suppress further progress notifications
@@ -374,17 +400,29 @@ class TrackingService {
 
   static Future<void> syncTrackingActiveFromPrefs() async {
     try {
+
       final prefs = await SharedPreferences.getInstance();
       final active = prefs.getBool(TrackingSessionStateFile.trackingActiveFlagKey) ?? false;
       _trackingActive = active;
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
   static Future<void> setProgressSuppressed(bool value) async {
     suppressProgressNotifications = value;
     try {
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(progressSuppressedKey, value);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
   static Future<bool> isProgressSuppressed() async {
     try {
@@ -403,10 +441,16 @@ class TrackingService {
       }
     }
     try {
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('flutter.native_end_tracking_signal_v1');
       await prefs.setBool(TrackingSessionStateFile.trackingActiveFlagKey, false);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
 
   static Future<void> handleNativeIgnoreTrackingFromNotification({String? source}) async {
@@ -416,9 +460,15 @@ class TrackingService {
     }
     await setProgressSuppressed(true);
     try {
+
       suppressProgressNotifications = true;
       await NotificationService().cancelJourneyProgress();
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
 
   // Resume-pending flag: separate from fast trackingActive flag. Used when
@@ -447,8 +497,14 @@ class TrackingService {
     await _setResumePending(false, phase: 'uiAttached');
     markResumedForeground();
     try {
+
       await NotificationService().restoreJourneyProgressIfNeeded();
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   }
 
   // Foreground helper: detect and consume a pending resume flag when main()'s
@@ -561,9 +617,15 @@ class TrackingService {
       TrackingSnapshot? persistedSnapshot;
     _trackingActive = true; // mark immediately so lifecycle pause handler doesn't kill process mid-start
     try {
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('pending_home_after_stop');
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Persist lightweight session state for cold-start auto resume
     if (isTestMode && suppressPersistenceInTest) {
       print('GW_ARES_ST_SAVE_TEST_SKIP lat=${destination.latitude} lng=${destination.longitude} mode=$alarmMode val=$alarmValue');
@@ -602,7 +664,9 @@ class TrackingService {
           // Minimal restoration: progress + eta not directly reinstated into streams yet.
           dev.log('Loaded snapshot (ts=${snap.timestampMs}) for potential recovery', name: 'TrackingService');
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
     if (persistedSnapshot?.orchestratorState != null) {
       params['orchestratorState'] = Map<String, dynamic>.from(persistedSnapshot!.orchestratorState!);
@@ -617,20 +681,39 @@ class TrackingService {
       await _service.startService();
     }
     try {
+
       await NotificationService().maybePromptBatteryOptimization();
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     try {
+
       await NotificationService().scheduleProgressWakeFallback();
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     try {
+
       await NotificationService().showJourneyProgress(
         title: 'Journey to $destinationName',
         subtitle: 'Starting…',
         progress0to1: 0,
       );
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Initialize fallback manager (legacy lifecycle path)
     try {
+
       FallbackAlarmManager.isTestMode = TrackingService.isTestMode;
       _fallbackManager = FallbackAlarmManager(NoopAlarmScheduler());
       _fallbackManager!.onFire = (reason) async {
@@ -642,10 +725,17 @@ class TrackingService {
             body: 'Arriving soon (safety alarm)',
             allowContinueTracking: false,
           );
-        } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
       };
       await _fallbackManager!.schedule(const Duration(minutes: 45), reason: 'initial');
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     _service.invoke("startTracking", params);
   }
 
@@ -657,32 +747,96 @@ class TrackingService {
     } catch (e) {
       dev.log('Error stopping alarm in foreground: $e', name: 'TrackingService');
     }
-    try { _fallbackManager?.cancel(reason: 'stopTracking'); } catch (_) {}
+    try {
+
+      _fallbackManager?.cancel(reason: 'stopTracking');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
   _trackingActive = false;
   // Reset alarm deduplicator for next tracking session
-  try { alarmDeduplicator.reset(); } catch (_) {}
+  try {
+
+    alarmDeduplicator.reset();
+
+  } catch (e) {
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   // Suppress any late progress updates after stopping
   await TrackingService.setProgressSuppressed(true);
-    try { await NotificationService().cancelJourneyProgress(); } catch (_) {}
-  try { await NotificationService().cancelProgressWakeFallback(); } catch (_) {}
+    try {
+
+      await NotificationService().cancelJourneyProgress();
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
+  try {
+
+    await NotificationService().cancelProgressWakeFallback();
+
+  } catch (e) {
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
     _lastNotifiedProgress = -1;
     _lastProgressNotifyAt = DateTime.fromMillisecondsSinceEpoch(0);
-    try { await TrackingSessionStateFile.clear(); dev.log('TrackingService: session state cleared', name: 'TrackingService'); } catch (_) {}
+    try {
+
+      await TrackingSessionStateFile.clear(); dev.log('TrackingService: session state cleared', name: 'TrackingService');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Also ensure fast flag false even if clear encountered issues
     try {
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(TrackingSessionStateFile.trackingActiveFlagKey, false);
-    } catch (_) {}
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Clear resume-pending flag
-    try { await _setResumePending(false, phase: 'stopTracking'); } catch (_) {}
+    try {
+
+      await _setResumePending(false, phase: 'stopTracking');
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Reset auto-resume indicator
-    try { TrackingService.autoResumed = false; } catch (_) {}
+    try {
+
+      TrackingService.autoResumed = false;
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
     // Also instruct background service (if running) to stop itself so no zombie state remains
     try {
       if (await _service.isRunning()) {
         _service.invoke('stopTracking', { 'stopSelf': true });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   @visibleForTesting
@@ -700,7 +854,15 @@ class TrackingService {
 @pragma('vm:entry-point')
 bool onIosBackground(ServiceInstance service) {
   WidgetsFlutterBinding.ensureInitialized();
-  try { DartPluginRegistrant.ensureInitialized(); } catch (_) {}
+  try {
+
+    DartPluginRegistrant.ensureInitialized();
+
+  } catch (e) {
+
+    AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+  }
   return true;
 }
 
