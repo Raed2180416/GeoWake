@@ -31,6 +31,13 @@ class AlarmRolloutConfig {
   void setLegacyEmergencyOverride(bool enabled) {
     _legacyEmergencyOverride = enabled;
   }
+  
+  /// Dispose of resources to prevent memory leaks.
+  void dispose() {
+    if (!_ctrl.isClosed) {
+      _ctrl.close();
+    }
+  }
 }
 
 /// Duplicate suppression signature (type+routeId+bucket) TTL cache.

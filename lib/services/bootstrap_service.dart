@@ -265,4 +265,11 @@ class BootstrapService {
       print('GW_ARES_LATE_RECOVERY_EXCEPTION err=$e');
     }
   }
+  
+  /// Dispose of resources to prevent memory leaks.
+  void dispose() {
+    if (!_stateCtrl.isClosed) {
+      _stateCtrl.close();
+    }
+  }
 }

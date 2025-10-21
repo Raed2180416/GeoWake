@@ -220,6 +220,13 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
     _firstSample = null;
     _nextEventIndex = 0;
   }
+  
+  /// Dispose of resources to prevent memory leaks.
+  void dispose() {
+    if (!_eventsCtrl.isClosed) {
+      _eventsCtrl.close();
+    }
+  }
 
   // Temporary injection utilities until full route manager wiring is in place
   void setTotalRouteMeters(double meters) => _totalRouteMeters = meters;

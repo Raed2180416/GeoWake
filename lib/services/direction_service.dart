@@ -36,7 +36,11 @@ class DirectionService {
     bool forceRefresh = false,
   }) async {
     // Ensure ApiClient is ready on first run (bootstrap late init may still be running)
-    try { await _apiClient.initialize(); } catch (_) {}
+    try {
+      await _apiClient.initialize();
+    } catch (e) {
+      Log.w('DirectionService', 'API client initialization warning (may already be initialized): $e');
+    }
     // L2 persistent cache check (Hive)
     final origin = LatLng(startLat, startLng);
     final dest = LatLng(endLat, endLng);
