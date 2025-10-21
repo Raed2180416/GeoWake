@@ -1,5 +1,5 @@
 import 'dart:collection';
-import 'dart:developer' as dev;
+import 'package:geowake2/services/log.dart';
 
 /// Simple TTL-based alarm deduplication with automatic cleanup.
 /// Keys are arbitrary (e.g., composed from title+body or an alarm category).
@@ -65,9 +65,9 @@ class AlarmDeduplicator {
     
     final sizeAfter = _lastFire.length;
     if (sizeBefore != sizeAfter) {
-      dev.log(
+      Log.d(
+        'AlarmDeduplicator',
         'Cleaned up alarm deduplication cache: $sizeBefore -> $sizeAfter entries',
-        name: 'AlarmDeduplicator'
       );
     }
   }
@@ -76,9 +76,9 @@ class AlarmDeduplicator {
   void _pruneOldest() {
     if (_lastFire.length <= maxEntries) return;
     
-    dev.log(
-      'Alarm deduplicator exceeded max size ($maxEntries), pruning oldest entries',
-      name: 'AlarmDeduplicator'
+    Log.w(
+      'AlarmDeduplicator',
+      'Exceeded max size ($maxEntries), pruning oldest entries',
     );
     
     // Sort by timestamp and remove oldest
@@ -90,15 +90,15 @@ class AlarmDeduplicator {
       _lastFire.remove(sorted[i].key);
     }
     
-    dev.log(
+    Log.d(
+      'AlarmDeduplicator',
       'Pruned $toRemove entries, ${_lastFire.length} remain',
-      name: 'AlarmDeduplicator'
     );
   }
 
   /// Clears all recorded entries (mainly for tests or trip reset).
   void reset() {
-    dev.log('Resetting alarm deduplication cache', name: 'AlarmDeduplicator');
+    Log.d('AlarmDeduplicator', 'Resetting alarm deduplication cache');
     _lastFire.clear();
     _lastCleanup = null;
   }

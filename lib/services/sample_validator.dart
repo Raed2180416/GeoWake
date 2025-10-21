@@ -36,6 +36,33 @@ class SampleValidator {
 
   SampleValidationResult validate(Position p, DateTime now) {
     try {
+      // 0. CRITICAL: Check for NaN and Infinity values (CRITICAL-007 fix)
+      if (!p.latitude.isFinite || !p.longitude.isFinite) {
+        AppMetrics.I.inc('sample_reject_invalid_coords');
+        return SampleValidationResult.reject('invalid_coords');
+      }
+      
+      // Check for valid coordinate ranges
+      if (p.latitude < -90 || p.latitude > 90 || 
+          p.longitude < -180 || p.longitude > 180) {
+        AppMetrics.I.inc('sample_reject_out_of_range');
+        return SampleValidationResult.reject('out_of_range');
+      }
+      
+      // Check for "Null Island" (0, 0) - usually indicates GPS error
+      const nullIslandThreshold = 0.001;
+      if (p.latitude.abs() < nullIslandThreshold && 
+          p.longitude.abs() < nullIslandThreshold) {
+        AppMetrics.I.inc('sample_reject_null_island');
+        return SampleValidationResult.reject('null_island');
+      }
+      
+      // Validate speed is not negative or NaN
+      if (p.speed.isFinite && p.speed < 0) {
+        AppMetrics.I.inc('sample_reject_negative_speed');
+        return SampleValidationResult.reject('negative_speed');
+      }
+      
       // 1. Staleness
       if (now.difference(p.timestamp) > staleThreshold) {
         AppMetrics.I.inc('sample_reject_stale');

@@ -20,7 +20,14 @@ class PendingAlarm {
     required this.type,
     required this.createdAtEpochMs,
     required this.state,
-  });
+  }) : 
+    // HIGH-008: Input validation assertions
+    assert(targetLat >= -90 && targetLat <= 90, 'targetLat must be in range -90 to 90'),
+    assert(targetLng >= -180 && targetLng <= 180, 'targetLng must be in range -180 to 180'),
+    assert(triggerEpochMs > 0, 'triggerEpochMs must be positive'),
+    assert(createdAtEpochMs > 0, 'createdAtEpochMs must be positive'),
+    assert(type.length > 0, 'type cannot be empty'),
+    assert(state.length > 0, 'state cannot be empty');
 
   PendingAlarm copyWith({
     int? id,

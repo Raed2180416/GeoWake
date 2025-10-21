@@ -8,6 +8,7 @@ import 'package:geowake2/services/pending_alarm_store.dart';
 import 'package:geowake2/services/alarm_scheduler.dart';
 import 'package:geowake2/services/event_bus.dart';
 import 'package:geowake2/services/alarm_rollout.dart';
+import 'package:synchronized/synchronized.dart';
 
 /// Minimal abstraction layer to begin extracting alarm logic from trackingservice.
 /// Currently delegates triggering only; future iterations will move threshold evaluation.
@@ -37,6 +38,7 @@ class DefaultAlarmSoundPlayer implements AlarmSoundPlayer {
 }
 
 class AlarmOrchestrator {
+  final Lock _lock = Lock();
   bool _fired = false;
   bool get fired => _fired;
   DateTime? _firedAt;
@@ -123,52 +125,55 @@ class AlarmOrchestrator {
     required String body,
     bool allowContinue = true,
   }) async {
-    // Rollout gating: in shadow stage we do not surface any user-visible alarm.
-    if (_rollout.stage == OrchestratorRolloutStage.shadow) {
-      Log.i('AlarmOrch', 'Rollout stage=shadow; suppressing destination alarm (shadow instrumentation only)');
-      EventBus().emit(AlarmShadowSuppressedEvent());
-      return;
-    }
-    if (_fired) {
-      Log.d('AlarmOrch', 'Destination alarm already fired; ignoring duplicate');
-      return;
-    }
-    Log.i('AlarmOrch', 'Triggering destination alarm (phase1=notification)');
-    try {
-      await _notifier.show(title, body, allowContinue);
-      EventBus().emit(AlarmFiredPhase1Event());
-    } catch (e, st) {
-      Log.e('AlarmOrch', 'Notification phase failed', e, st);
-      rethrow; // Nothing to rollback yet
-    }
-    // Phase 2: audio/vibration start. Only mark fired after both succeed.
-    try {
-      await _sound.play();
-      _fired = true;
-      _firedAt = DateTime.now();
-      Log.i('AlarmOrch', 'Alarm fully active (notification+audio)');
-      EventBus().emit(AlarmFiredPhase2Event());
-      // Cancel fallback if scheduled
-      if (_scheduledPending != null) {
-        try {
-          await _scheduler.cancel(_scheduledPending!.id);
-        } catch (_) {}
-        await _store.clear();
-        _scheduledPending = null;
+    // Use lock to prevent race conditions in alarm triggering
+    return await _lock.synchronized(() async {
+      // Rollout gating: in shadow stage we do not surface any user-visible alarm.
+      if (_rollout.stage == OrchestratorRolloutStage.shadow) {
+        Log.i('AlarmOrch', 'Rollout stage=shadow; suppressing destination alarm (shadow instrumentation only)');
+        EventBus().emit(AlarmShadowSuppressedEvent());
+        return;
       }
-    } catch (e, st) {
-      Log.e('AlarmOrch', 'Audio phase failed; attempting rollback', e, st);
+      if (_fired) {
+        Log.d('AlarmOrch', 'Destination alarm already fired; ignoring duplicate');
+        return;
+      }
+      Log.i('AlarmOrch', 'Triggering destination alarm (phase1=notification)');
       try {
-        await _notifier.cancelProgress(); // best-effort cleanup
-      } catch (_) {}
-      // Clear pending alarm preference flag so app does not think alarm is active.
+        await _notifier.show(title, body, allowContinue);
+        EventBus().emit(AlarmFiredPhase1Event());
+      } catch (e, st) {
+        Log.e('AlarmOrch', 'Notification phase failed', e, st);
+        rethrow; // Nothing to rollback yet
+      }
+      // Phase 2: audio/vibration start. Only mark fired after both succeed.
       try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('pending_alarm_flag');
-      } catch (_) {}
-      EventBus().emit(AlarmRollbackEvent());
-      rethrow;
-    }
+        await _sound.play();
+        _fired = true;
+        _firedAt = DateTime.now();
+        Log.i('AlarmOrch', 'Alarm fully active (notification+audio)');
+        EventBus().emit(AlarmFiredPhase2Event());
+        // Cancel fallback if scheduled
+        if (_scheduledPending != null) {
+          try {
+            await _scheduler.cancel(_scheduledPending!.id);
+          } catch (_) {}
+          await _store.clear();
+          _scheduledPending = null;
+        }
+      } catch (e, st) {
+        Log.e('AlarmOrch', 'Audio phase failed; attempting rollback', e, st);
+        try {
+          await _notifier.cancelProgress(); // best-effort cleanup
+        } catch (_) {}
+        // Clear pending alarm preference flag so app does not think alarm is active.
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('pending_alarm_flag');
+        } catch (_) {}
+        EventBus().emit(AlarmRollbackEvent());
+        rethrow;
+      }
+    });
   }
 
   void reset() {

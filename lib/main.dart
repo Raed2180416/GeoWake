@@ -148,12 +148,25 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.didChangeAppLifecycleState(state);
     // This is called when the user backgrounds the app (e.g., presses home).
     if (state == AppLifecycleState.paused) {
-      dev.log("App paused, flushing Hive box to disk.", name: "main");
+      dev.log("App paused, flushing all Hive boxes to disk.", name: "main");
+      // CRITICAL-008 FIX: Flush all open boxes to prevent data corruption
       // `flush()` is a direct command to write all in-memory changes to disk.
       // This prevents the OS from killing the app before data is saved.
-      if (Hive.isBoxOpen(RecentLocationsService.boxName)) {
-        Hive.box(RecentLocationsService.boxName).flush();
+      try {
+        // Flush all open boxes
+        for (var box in Hive.box.values) {
+          try {
+            if (box.isOpen) {
+              box.flush();
+            }
+          } catch (e) {
+            dev.log('Error flushing box: $e', name: 'main');
+          }
+        }
+      } catch (e) {
+        dev.log('Error flushing Hive boxes: $e', name: 'main');
       }
+      
       // If no active tracking session, schedule process close to avoid a dormant process lingering.
       Future.delayed(const Duration(seconds: 1), () async {
         if (!TrackingService.trackingActive) {
@@ -165,6 +178,15 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
           // the service is not started and the process becomes a candidate for reclaim.
         }
       });
+    }
+    if (state == AppLifecycleState.detached) {
+      // App is about to be terminated - close all boxes properly
+      dev.log("App detached, closing all Hive boxes.", name: "main");
+      try {
+        Hive.close();
+      } catch (e) {
+        dev.log('Error closing Hive on app detached: $e', name: 'main');
+      }
     }
     if (state == AppLifecycleState.resumed) {
       // On resume, auto-present any pending full-screen alarm.
