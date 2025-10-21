@@ -1076,6 +1076,32 @@ extension TrackingServiceRouteOps on TrackingService {
     // Build event boundaries and keep in memory
     try {
       _routeEvents = TransferUtils.buildRouteEvents(directions);
+      
+      // VERIFICATION: Ensure all switch points are captured
+      try {
+        final verification = TransferUtils.verifySwitchPointCoverage(directions);
+        final totalPoints = verification['totalSwitchPoints'] as int? ?? 0;
+        final captured = verification['capturedInEvents'] as int? ?? 0;
+        final allCaptured = verification['allEventsCaptured'] as bool? ?? true;
+        
+        AppLogger.I.info('Switch point verification', domain: 'alarm', context: {
+          'totalSwitchPoints': totalPoints,
+          'capturedInEvents': captured,
+          'allCaptured': allCaptured,
+          'routeEventsCount': _routeEvents.length,
+        });
+        
+        if (!allCaptured) {
+          AppLogger.I.warn('Potential missing switch points detected!', domain: 'alarm', context: {
+            'expected': totalPoints,
+            'actual': captured,
+          });
+        }
+      } catch (e) {
+        AppLogger.I.warn('Failed to verify switch points', domain: 'alarm', context: {
+          'error': e.toString(),
+        });
+      }
     } catch (_) {
       _routeEvents = const [];
     }

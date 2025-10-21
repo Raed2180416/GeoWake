@@ -1,5 +1,49 @@
 part of 'package:geowake2/services/trackingservice.dart';
 
+/// Verifies that switch point alarms are being properly evaluated.
+/// Called periodically to ensure no events are being skipped.
+void _verifySwitchPointAlarmCoverage() {
+  if (_routeEvents.isEmpty) return;
+  
+  try {
+    final totalEvents = _routeEvents.length;
+    final firedCount = _firedEventIndexes.length;
+    
+    // Check for events that might have been passed without firing
+    if (_lastActiveState?.progressMeters != null) {
+      final progressMeters = _lastActiveState!.progressMeters;
+      int passedWithoutFiring = 0;
+      
+      for (int idx = 0; idx < _routeEvents.length; idx++) {
+        final ev = _routeEvents[idx];
+        // If we've passed this event but haven't fired it, that's a potential issue
+        if (ev.meters < progressMeters && !_firedEventIndexes.contains(idx)) {
+          passedWithoutFiring++;
+          AppLogger.I.warn('Switch point passed without alarm firing', domain: 'alarm.verification', context: {
+            'eventIdx': idx,
+            'eventType': ev.type,
+            'eventMeters': ev.meters.toStringAsFixed(1),
+            'progressMeters': progressMeters.toStringAsFixed(1),
+            'eventLabel': ev.label ?? 'no label',
+          });
+        }
+      }
+      
+      if (passedWithoutFiring > 0) {
+        AppLogger.I.warn('VERIFICATION ALERT: Switch points passed without alarms', domain: 'alarm.verification', context: {
+          'passedWithoutFiring': passedWithoutFiring,
+          'totalEvents': totalEvents,
+          'firedEvents': firedCount,
+        });
+      }
+    }
+  } catch (e) {
+    AppLogger.I.debug('Failed to verify switch point coverage', domain: 'alarm.verification', context: {
+      'error': e.toString(),
+    });
+  }
+}
+
 AlarmConfig _makeAlarmConfig() {
   // Map legacy UI mode/value to orchestrator config; only one threshold active at a time.
   final mode = _alarmMode;
@@ -301,6 +345,15 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
 
   // Also check upcoming route events (transfer/mode change) with the same threshold semantics
   if (_routeEvents.isNotEmpty) {
+    // Log that we're checking route events for switch point alarms
+    try {
+      AppLogger.I.debug('Checking route events for switch point alarms', domain: 'alarm', context: {
+        'totalEvents': _routeEvents.length,
+        'firedEvents': _firedEventIndexes.length,
+        'remainingEvents': _routeEvents.length - _firedEventIndexes.length,
+      });
+    } catch (_) {}
+    
     // We need progressMeters along the active route; grab latest from manager by listening state earlier.
     // Since we don't keep state here, approximate using last known remaining distance if available via registry lastProgress.
     try {
@@ -343,8 +396,27 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
         }
         for (int idx = 0; idx < _routeEvents.length; idx++) {
           final ev = _routeEvents[idx];
-          if (_firedEventIndexes.contains(idx)) continue; // already alerted
-          if (ev.meters <= progressMeters) continue; // already passed
+          if (_firedEventIndexes.contains(idx)) {
+            // Log that this event was already fired (for verification)
+            AppLogger.I.debug('Skipping already-fired event', domain: 'alarm', context: {
+              'eventIdx': idx,
+              'eventType': ev.type,
+              'eventMeters': ev.meters.toStringAsFixed(1),
+              'eventLabel': ev.label ?? 'no label',
+            });
+            continue; // already alerted
+          }
+          if (ev.meters <= progressMeters) {
+            // Log that this event was already passed (for verification)
+            AppLogger.I.debug('Skipping already-passed event', domain: 'alarm', context: {
+              'eventIdx': idx,
+              'eventType': ev.type,
+              'eventMeters': ev.meters.toStringAsFixed(1),
+              'progressMeters': progressMeters.toStringAsFixed(1),
+              'eventLabel': ev.label ?? 'no label',
+            });
+            continue; // already passed
+          }
           final toEventM = ev.meters - progressMeters;
           bool eventAlarm = false;
           // When in stops mode we allow two pathways for raising an event alarm:
@@ -454,10 +526,28 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
             }
             _firedEventIndexes.add(idx);
             // Continue to check destination separately
+          } else {
+            // SAFEGUARD: Log when we're near an event but haven't fired yet
+            // This helps verify alarm coverage at switch points
+            if (toEventM <= 200.0) { // within 200m but not firing
+              AppLogger.I.debug('Near switch point but alarm not triggered yet', domain: 'alarm', context: {
+                'eventIdx': idx,
+                'eventType': ev.type,
+                'toEventM': toEventM.toStringAsFixed(1),
+                'eventLabel': ev.label ?? 'no label',
+                'thresholdMeters': thresholdMeters?.toStringAsFixed(1) ?? 'N/A',
+                'thresholdSeconds': thresholdSeconds?.toStringAsFixed(1) ?? 'N/A',
+                'thresholdStops': thresholdStops?.toStringAsFixed(1) ?? 'N/A',
+              });
+            }
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Failed to check route events', domain: 'alarm', context: {
+        'error': e.toString(),
+      });
+    }
   }
 
   // Destination threshold check considering stops mode
@@ -593,6 +683,15 @@ Future<void> _checkAndTriggerAlarm(Position currentPosition, ServiceInstance ser
       TrackingService.sessionStore!.save(snap);
     }
   } catch (_) {}
+  
+  // VERIFICATION: Periodically verify switch point alarm coverage
+  // Run this check every 10th alarm evaluation to avoid excessive overhead
+  static int _verificationCounter = 0;
+  _verificationCounter++;
+  if (_verificationCounter % 10 == 0) {
+    _verifySwitchPointAlarmCoverage();
+  }
+  
   sw.stop();
   MetricsRegistry.I.duration('alarm.legacy.check').record(sw.elapsed);
 }
