@@ -151,7 +151,6 @@ GeoWake/
 │
 ├── pubspec.yaml                  # Flutter dependencies
 ├── analysis_options.yaml         # Dart linting rules
-├── dart_test.yaml                # Test configuration
 ├── .gitignore                    # Git ignore patterns
 ├── README.md                     # Quick project intro
 └── PROJECT_OVERVIEW.md           # This file
@@ -171,8 +170,9 @@ The following files were removed as part of cleanup to keep only essential code 
 - `SECURITY_SETUP.md`
 - `STRESS_TEST_EXECUTIVE_SUMMARY.md`
 - `VERIFICATION_CHECKLIST.md`
-- `package.json`, `package-lock.json` (moved to geowake-server/)
+- `package.json`, `package-lock.json`
 - `check_versions.bat`
+- `dart_test.yaml` (test configuration, no longer needed)
 
 **Removed directories:**
 - `docs/` (except `docs/annotated/`)
