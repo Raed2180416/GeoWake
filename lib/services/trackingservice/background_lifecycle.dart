@@ -151,7 +151,6 @@ void _startProgressHeartbeat(ServiceInstance service) {
     
     // Re-post progress notification if tracking is active and not suppressed
     try {
-
       final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
       if (!TrackingService.isTestMode && !suppressed) {
         final snapshot = _buildProgressSnapshot();
@@ -162,21 +161,12 @@ void _startProgressHeartbeat(ServiceInstance service) {
               subtitle: snapshot['subtitle'] as String,
               progress: snapshot['progress'] as double,
             );
-
-    } catch (e) {
-
-      AppLogger.I.warn('Failed to persist final suppressed = TrackingService.suppressProgressNotifications || await TrackingService.isProgressSuppressed();
-      if (!TrackingService.isTestMode && !suppressed) {
-        final snapshot = _buildProgressSnapshot();
-        if (snapshot != null) {
-          try {
-            await NotificationService().ProgressSnapshot(
-              title: snapshot['title'] as String,
-              subtitle: snapshot['subtitle'] as String,
-              progress: snapshot['progress'] as double,
-            );', domain: 'tracking', context: {'error': e.toString()});
-
-    }
+          } catch (e) {
+            AppLogger.I.warn('Failed to persist progress snapshot', 
+              domain: 'tracking', 
+              context: {'error': e.toString()}
+            );
+          }
           try {
             await NotificationService().showJourneyProgress(
               title: snapshot['title'] as String,
@@ -188,17 +178,19 @@ void _startProgressHeartbeat(ServiceInstance service) {
           }
         }
         try {
-
           await NotificationService().ensureProgressNotificationPresent();
-
         } catch (e) {
-
-          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
-
+          AppLogger.I.warn('Failed to ensure progress notification present', 
+            domain: 'tracking', 
+            context: {'error': e.toString()}
+          );
         }
       }
     } catch (e) {
-      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      AppLogger.I.warn('Failed to refresh progress notification', 
+        domain: 'tracking', 
+        context: {'error': e.toString()}
+      );
     }
     // Emit light-weight position update for diagnostics harness map UI
     try {
