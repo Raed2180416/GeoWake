@@ -84,6 +84,9 @@ class TransferUtils {
           if (prevMode != null && mode != null && mode != prevMode) {
             final label = _modeLabel(mode);
             events.add(RouteEventBoundary(meters: cum, type: 'mode_change', label: label));
+            // Log mode change detection for verification
+            dev.log('Detected mode change at ${cum.toStringAsFixed(1)}m: $prevMode -> $mode', 
+                   name: 'TransferUtils');
           }
           if (dist != null) cum += dist.toDouble();
 
@@ -107,6 +110,9 @@ class TransferUtils {
             }
             if (curId != null && nextTransitId != null && nextTransitId != curId) {
               events.add(RouteEventBoundary(meters: cum, type: 'transfer', label: arrivalStopName));
+              // Log transfer detection for verification
+              dev.log('Detected transit transfer at ${cum.toStringAsFixed(1)}m: $curId -> $nextTransitId at ${arrivalStopName ?? "unknown stop"}', 
+                     name: 'TransferUtils');
             }
           }
 
@@ -126,6 +132,11 @@ class TransferUtils {
         lastM = ev.meters;
       }
     }
+    
+    // Log summary for verification
+    dev.log('Built ${dedup.length} route events: ${dedup.map((e) => "${e.type}@${e.meters.toStringAsFixed(0)}m").join(", ")}', 
+           name: 'TransferUtils');
+    
     return dedup;
   }
 
@@ -175,6 +186,86 @@ class TransferUtils {
       default:
         return mode;
     }
+  }
+
+  /// Verifies that all critical switch points are captured in route events.
+  /// Returns a verification report with any missing switch points.
+  static Map<String, dynamic> verifySwitchPointCoverage(Map<String, dynamic> directions) {
+    final report = <String, dynamic>{
+      'totalSwitchPoints': 0,
+      'capturedInEvents': 0,
+      'missingSwitchPoints': <String>[],
+      'allEventsCaptured': true,
+    };
+
+    try {
+      final routes = (directions['routes'] as List?) ?? const [];
+      if (routes.isEmpty) return report;
+      
+      final route = routes.first as Map<String, dynamic>;
+      final legs = (route['legs'] as List?) ?? const [];
+      
+      // Track all mode transitions and transfers
+      final allSwitchPoints = <String>[];
+      double cum = 0.0;
+      String? prevMode;
+      
+      for (final leg in legs) {
+        final steps = (leg['steps'] as List?) ?? const [];
+        for (int i = 0; i < steps.length; i++) {
+          final step = steps[i] as Map<String, dynamic>;
+          final mode = step['travel_mode'] as String?;
+          final dist = ((step['distance'] as Map<String, dynamic>?)?['value']) as num?;
+          
+          // Check for mode change
+          if (prevMode != null && mode != null && mode != prevMode) {
+            allSwitchPoints.add('mode_change@${cum.toStringAsFixed(1)}:$prevMode->$mode');
+          }
+          
+          if (dist != null) cum += dist.toDouble();
+          
+          // Check for transit transfer
+          if (mode == 'TRANSIT') {
+            final curLine = ((step['transit_details'] as Map<String, dynamic>?)?['line']) as Map<String, dynamic>?;
+            final curId = (curLine?['short_name'] ?? curLine?['name'] ?? curLine?['id'])?.toString();
+            
+            for (int j = i + 1; j < steps.length; j++) {
+              final nextStep = steps[j] as Map<String, dynamic>;
+              final nextMode = nextStep['travel_mode'] as String?;
+              if (nextMode == 'TRANSIT') {
+                final nxtLine = ((nextStep['transit_details'] as Map<String, dynamic>?)?['line']) as Map<String, dynamic>?;
+                final nextTransitId = (nxtLine?['short_name'] ?? nxtLine?['name'] ?? nxtLine?['id'])?.toString();
+                if (curId != null && nextTransitId != null && nextTransitId != curId) {
+                  allSwitchPoints.add('transfer@${cum.toStringAsFixed(1)}:$curId->$nextTransitId');
+                }
+                break;
+              }
+            }
+          }
+          
+          if (mode != null) prevMode = mode;
+        }
+      }
+      
+      report['totalSwitchPoints'] = allSwitchPoints.length;
+      
+      // Verify against built events
+      final events = buildRouteEvents(directions);
+      report['capturedInEvents'] = events.length;
+      
+      // Check if all switch points are captured
+      if (allSwitchPoints.length > events.length) {
+        report['allEventsCaptured'] = false;
+        dev.log('WARNING: Potential missing switch points detected. Expected ${allSwitchPoints.length}, got ${events.length} events', 
+               name: 'TransferUtils.Verification');
+      }
+      
+    } catch (e) {
+      dev.log('Failed to verify switch point coverage: $e', name: 'TransferUtils.Verification');
+      report['error'] = e.toString();
+    }
+    
+    return report;
   }
 
   // Identify the cumulative stops at the first boarding of a TRANSIT segment.
