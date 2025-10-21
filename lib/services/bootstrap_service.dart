@@ -8,6 +8,7 @@ import 'api_client.dart';
 import 'notification_service.dart';
 import 'persistence/tracking_session_state.dart';
 import 'secure_hive_init.dart';
+import '../config/ssl_pinning_config.dart';
 
 /// Fast bootstrap strategy:
 /// 1. Perform ultra-lightweight auto-resume decision (SharedPreferences + optional
@@ -195,6 +196,17 @@ class BootstrapService {
         await Hive.initFlutter();
         // Initialize encryption immediately after Hive
         await SecureHiveInit.initialize();
+      }),
+      _guard('SSL_PINNING', () async {
+        // Configure SSL certificate pinning for secure API communication
+        final pins = SSLPinningConfig.pins;
+        final enabled = SSLPinningConfig.enabled;
+        if (pins.isNotEmpty) {
+          ApiClient.configureCertificatePins(pins, enabled: enabled);
+          print('GW_SSL_PINNING_CONFIGURED pins=${pins.length} enabled=$enabled');
+        } else {
+          print('GW_SSL_PINNING_SKIPPED no_pins_configured');
+        }
       }),
       _guard('API', () async { await ApiClient.instance.initialize(); }),
       _guard('NOTIF', () async { await NotificationService().initialize(); }),
