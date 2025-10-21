@@ -25,7 +25,9 @@ class AppLogger {
           'context': context,
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   void debug(String m, {String domain='core', Map<String,Object?> context=const {}}) =>

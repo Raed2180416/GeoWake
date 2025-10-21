@@ -8,6 +8,7 @@ import 'api_client.dart';
 import 'notification_service.dart';
 import 'persistence/tracking_session_state.dart';
 import 'secure_hive_init.dart';
+import '../config/ssl_pinning_config.dart';
 
 /// Fast bootstrap strategy:
 /// 1. Perform ultra-lightweight auto-resume decision (SharedPreferences + optional
@@ -196,6 +197,17 @@ class BootstrapService {
         // Initialize encryption immediately after Hive
         await SecureHiveInit.initialize();
       }),
+      _guard('SSL_PINNING', () async {
+        // Configure SSL certificate pinning for secure API communication
+        final pins = SSLPinningConfig.pins;
+        final enabled = SSLPinningConfig.enabled;
+        if (pins.isNotEmpty) {
+          ApiClient.configureCertificatePins(pins, enabled: enabled);
+          print('GW_SSL_PINNING_CONFIGURED pins=${pins.length} enabled=$enabled');
+        } else {
+          print('GW_SSL_PINNING_SKIPPED no_pins_configured');
+        }
+      }),
       _guard('API', () async { await ApiClient.instance.initialize(); }),
       _guard('NOTIF', () async { await NotificationService().initialize(); }),
       _guard('TRACKING_INIT', () async { await TrackingService().initializeService(); }),
@@ -229,18 +241,18 @@ class BootstrapService {
           print('GW_ARES_RECOVER_CANCEL_FAIL err=$e');
         }
       }
-      if (recovered != null && recovered!['empty'] != true && recovered!['error'] != true) {
-        final lat = (recovered!['destinationLat'] as num?)?.toDouble();
-        final lng = (recovered!['destinationLng'] as num?)?.toDouble();
+      if (recovered != null && recovered['empty'] != true && recovered['error'] != true) {
+        final lat = (recovered['destinationLat'] as num?)?.toDouble();
+        final lng = (recovered['destinationLng'] as num?)?.toDouble();
         if (lat != null && lng != null) {
           print('GW_ARES_RECOVER_SUCCESS_LATE lat=$lat lng=$lng');
           // Persist for next launch resilience
           try { await TrackingSessionStateFile.save({
             'destinationLat': lat,
             'destinationLng': lng,
-            'destinationName': recovered!['destinationName'] ?? 'Destination',
-            'alarmMode': recovered!['alarmMode'] ?? 'distance',
-            'alarmValue': (recovered!['alarmValue'] as num?)?.toDouble() ?? 1.0,
+            'destinationName': recovered['destinationName'] ?? 'Destination',
+            'alarmMode': recovered['alarmMode'] ?? 'distance',
+            'alarmValue': (recovered['alarmValue'] as num?)?.toDouble() ?? 1.0,
             'startedAt': DateTime.now().millisecondsSinceEpoch,
           }); } catch (e) { print('GW_ARES_RECOVER_SAVE_FAIL_LATE err=$e'); }
           // If state still pointing to home (rare race), we could emit updated args (not changing phase)
@@ -248,10 +260,10 @@ class BootstrapService {
             _emit(_state.copyWith(targetRoute: '/mapTracking', mapTrackingArgs: {
               'lat': lat,
               'lng': lng,
-              'destination': recovered!['destinationName'] ?? 'Destination',
-              'alarmMode': recovered!['alarmMode'],
-              'alarmValue': recovered!['alarmValue'],
-              'metroMode': recovered!['alarmMode'] == 'stops',
+              'destination': recovered['destinationName'] ?? 'Destination',
+              'alarmMode': recovered['alarmMode'],
+              'alarmValue': recovered['alarmValue'],
+              'metroMode': recovered['alarmMode'] == 'stops',
             }));
             print('GW_ARES_LATE_RECOVERY_EMIT');
           }

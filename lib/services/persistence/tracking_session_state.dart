@@ -30,11 +30,15 @@ class TrackingSessionStateFile {
     try {
       final appSupport = await getApplicationSupportDirectory();
       files.add(File('${appSupport.path}/$_filename'));
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     try {
       final docs = await getApplicationDocumentsDirectory();
       files.add(File('${docs.path}/$_filename'));
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
     // (Optional) external storage dir (Android only) not added to avoid extra permission complexity.
     return files;
   }

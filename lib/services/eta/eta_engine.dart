@@ -96,7 +96,9 @@ class EtaEngine {
           alpha = 0.15; // Far - heavy smoothing
         }
         
-        _smoothedEta = alpha * rawEta + (1 - alpha) * _smoothedEta!;
+        // Safe unwrap with fallback - should never be null here but use safe access
+        final currentSmoothed = _smoothedEta ?? rawEta;
+        _smoothedEta = alpha * rawEta + (1 - alpha) * currentSmoothed;
         
         // In test mode or close proximity, allow forcing raw when large improvement
         if (isTestMode && prevSmoothed != null) {
@@ -111,7 +113,9 @@ class EtaEngine {
         }
       }
       _etaSamples++;
-      _recentEtas.add(_smoothedEta!);
+      // Safe add - use smoothedEta if available, otherwise rawEta
+      final etaToAdd = _smoothedEta ?? rawEta ?? 0.0;
+      _recentEtas.add(etaToAdd);
       if (_recentEtas.length > volatilityWindow) {
         _recentEtas.removeAt(0);
       }
@@ -135,7 +139,7 @@ class EtaEngine {
     bool rapidDrop = false;
     // Rapid drop detection based on RAW ETA (Option B implementation)
     if (rawEta != null && _lastRawEta != null) {
-      final prev = _lastRawEta!;
+      final prev = _lastRawEta ?? 0.0;  // Safe fallback
       final curr = rawEta;
       if (prev > 0 && curr < prev && (prev - curr)/prev >= rapidDropFraction) {
         rapidDrop = true;

@@ -147,6 +147,7 @@ class AlarmOrchestrator {
       }
       // Phase 2: audio/vibration start. Only mark fired after both succeed.
       try {
+
         await _sound.play();
         _fired = true;
         _firedAt = DateTime.now();
@@ -156,20 +157,37 @@ class AlarmOrchestrator {
         if (_scheduledPending != null) {
           try {
             await _scheduler.cancel(_scheduledPending!.id);
-          } catch (_) {}
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
           await _store.clear();
           _scheduledPending = null;
         }
       } catch (e, st) {
         Log.e('AlarmOrch', 'Audio phase failed; attempting rollback', e, st);
         try {
+
           await _notifier.cancelProgress(); // best-effort cleanup
-        } catch (_) {}
+
+        } catch (e) {
+
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+        }
         // Clear pending alarm preference flag so app does not think alarm is active.
         try {
+
           final prefs = await SharedPreferences.getInstance();
           await prefs.remove('pending_alarm_flag');
-        } catch (_) {}
+
+        } catch (e) {
+
+          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+        }
         EventBus().emit(AlarmRollbackEvent());
         rethrow;
       }

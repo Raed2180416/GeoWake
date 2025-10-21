@@ -233,7 +233,9 @@ class DirectionService {
           List<LatLng> simplifiedPoints = _decodeAndSimplifyCached(ptsStr, 10);
           groupPoints.addAll(simplifiedPoints);
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
 
       for (int i = 1; i < steps.length; i++) {
         var step = steps[i];
@@ -277,7 +279,9 @@ class DirectionService {
               List<LatLng> simplifiedStepPoints = _decodeAndSimplifyCached(ptsStr, 10);
               groupPoints.addAll(simplifiedStepPoints);
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         } else {
           Color groupColor;
           if (currentGroupType == "non_transit") {
@@ -316,7 +320,9 @@ class DirectionService {
               List<LatLng> simplifiedStepPoints = _decodeAndSimplifyCached(ptsStr, 10);
               groupPoints.addAll(simplifiedStepPoints);
             }
-          } catch (_) {}
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
       }
 
@@ -362,7 +368,9 @@ class DirectionService {
               width: 5,
             ));
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
     }
     return polylines;
   }

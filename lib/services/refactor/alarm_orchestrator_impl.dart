@@ -96,8 +96,13 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
     if (_destination == null || _config == null || _fired) return;
     _firstSample ??= sample;
 
-    final cfg = _config!;
-    final dest = _destination!;
+    // Safe unwrap with runtime assertion - should never be null due to check above
+    final cfg = _config;
+    final dest = _destination;
+    if (cfg == null || dest == null) {
+      AppLogger.I.error('Config or destination unexpectedly null in update', domain: 'alarm');
+      return;
+    }
 
     final distMeters = _distanceMeters(sample.lat, sample.lng, dest.lat, dest.lng);
 
@@ -111,8 +116,9 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
     // Evaluate time eligibility (mirrors legacy conditions – distance since start + samples + min time)
     if (!_timeEligible && cfg.timeETALimitSeconds > 0) {
       try {
-        final moved = _firstSample != null
-            ? _distanceMeters(_firstSample!.lat, _firstSample!.lng, sample.lat, sample.lng)
+        final firstSample = _firstSample;
+        final moved = firstSample != null
+            ? _distanceMeters(firstSample.lat, firstSample.lng, sample.lat, sample.lng)
             : 0.0;
         final sinceStart = _startedAt != null ? DateTime.now().difference(_startedAt!) : Duration.zero;
         if (moved >= cfg.minTimeEligibilityDistanceMeters && _etaSamples >= cfg.minEtaSamples && sinceStart >= cfg.minTimeEligibilitySinceStart) {
@@ -134,10 +140,12 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
     }
     if (cfg.stopsThreshold > 0 && snapped != null && _totalStops != null && _totalStops! > 0) {
       // Approximate remaining stops using snapped.progressMeters -> progress ratio -> stops.
-      if (_totalRouteMeters != null && _totalRouteMeters! > 0) {
-        final ratio = (snapped.progressMeters / _totalRouteMeters!).clamp(0.0, 1.0);
-        final coveredStops = ratio * _totalStops!;
-        final remainingStops = _totalStops! - coveredStops;
+      final totalRouteMeters = _totalRouteMeters;
+      final totalStops = _totalStops;
+      if (totalRouteMeters != null && totalRouteMeters > 0 && totalStops != null && totalStops > 0) {
+        final ratio = (snapped.progressMeters / totalRouteMeters).clamp(0.0, 1.0);
+        final coveredStops = ratio * totalStops;
+        final remainingStops = totalStops - coveredStops;
         if (remainingStops <= cfg.stopsThreshold) {
           inside = true;
         }
@@ -148,7 +156,8 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
       if (_proximityGatingEnabled) {
         _proximityPasses += 1;
         _firstPassAt ??= DateTime.now();
-        final dwellOk = DateTime.now().difference(_firstPassAt!) >= _minDwell;
+        final firstPassAt = _firstPassAt;
+        final dwellOk = firstPassAt != null && DateTime.now().difference(firstPassAt) >= _minDwell;
         final passesOk = _proximityPasses >= _requiredPasses;
         if (dwellOk && passesOk) {
           _fire(distMeters: distMeters, etaSeconds: etaSeconds);

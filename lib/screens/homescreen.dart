@@ -81,8 +81,14 @@ class HomeScreenState extends State<HomeScreen> {
       _offline.setOffline(_noConnectivity);
       // Inform tracking service about connectivity for reroute gating
       try {
+
         TrackingService().setOnline(!_noConnectivity);
-      } catch (_) {}
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     });
 
     _getCurrentLocation().then((pos) async {
@@ -417,7 +423,9 @@ class HomeScreenState extends State<HomeScreen> {
             initialDistanceMeters = distVal.toDouble();
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       
       // Compute alarm mode/value before validation
       String alarmMode = _useDistanceMode ? 'distance' : 'time';
@@ -570,7 +578,9 @@ class HomeScreenState extends State<HomeScreen> {
         if (body != null) {
           dev.log('Last directions body snapshot: ${body.toString()}', name: 'HomeScreen');
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       if(mounted) {
          _showErrorDialog("Route Error", "Could not calculate the route. Please try again.");
          setState(() {
@@ -700,8 +710,14 @@ class HomeScreenState extends State<HomeScreen> {
                       // schedule microtask to navigate (avoid setState during build)
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         try {
+
                           Navigator.of(context).pushNamedAndRemoveUntil('/mapTracking', (r) => false);
-                        } catch (_) {}
+
+                        } catch (e) {
+
+                          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+                        }
                       });
                     }
                     if (canResume) {
