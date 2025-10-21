@@ -229,18 +229,18 @@ class BootstrapService {
           print('GW_ARES_RECOVER_CANCEL_FAIL err=$e');
         }
       }
-      if (recovered != null && recovered!['empty'] != true && recovered!['error'] != true) {
-        final lat = (recovered!['destinationLat'] as num?)?.toDouble();
-        final lng = (recovered!['destinationLng'] as num?)?.toDouble();
+      if (recovered != null && recovered['empty'] != true && recovered['error'] != true) {
+        final lat = (recovered['destinationLat'] as num?)?.toDouble();
+        final lng = (recovered['destinationLng'] as num?)?.toDouble();
         if (lat != null && lng != null) {
           print('GW_ARES_RECOVER_SUCCESS_LATE lat=$lat lng=$lng');
           // Persist for next launch resilience
           try { await TrackingSessionStateFile.save({
             'destinationLat': lat,
             'destinationLng': lng,
-            'destinationName': recovered!['destinationName'] ?? 'Destination',
-            'alarmMode': recovered!['alarmMode'] ?? 'distance',
-            'alarmValue': (recovered!['alarmValue'] as num?)?.toDouble() ?? 1.0,
+            'destinationName': recovered['destinationName'] ?? 'Destination',
+            'alarmMode': recovered['alarmMode'] ?? 'distance',
+            'alarmValue': (recovered['alarmValue'] as num?)?.toDouble() ?? 1.0,
             'startedAt': DateTime.now().millisecondsSinceEpoch,
           }); } catch (e) { print('GW_ARES_RECOVER_SAVE_FAIL_LATE err=$e'); }
           // If state still pointing to home (rare race), we could emit updated args (not changing phase)
@@ -248,10 +248,10 @@ class BootstrapService {
             _emit(_state.copyWith(targetRoute: '/mapTracking', mapTrackingArgs: {
               'lat': lat,
               'lng': lng,
-              'destination': recovered!['destinationName'] ?? 'Destination',
-              'alarmMode': recovered!['alarmMode'],
-              'alarmValue': recovered!['alarmValue'],
-              'metroMode': recovered!['alarmMode'] == 'stops',
+              'destination': recovered['destinationName'] ?? 'Destination',
+              'alarmMode': recovered['alarmMode'],
+              'alarmValue': recovered['alarmValue'],
+              'metroMode': recovered['alarmMode'] == 'stops',
             }));
             print('GW_ARES_LATE_RECOVERY_EMIT');
           }

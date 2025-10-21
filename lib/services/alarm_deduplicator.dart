@@ -52,8 +52,9 @@ class AlarmDeduplicator {
   /// Clean up expired entries periodically (every 10 minutes).
   void _cleanupIfNeeded(DateTime now) {
     // Only cleanup once every 10 minutes
-    if (_lastCleanup != null && 
-        now.difference(_lastCleanup!) < const Duration(minutes: 10)) {
+    final lastCleanup = _lastCleanup;
+    if (lastCleanup != null && 
+        now.difference(lastCleanup) < const Duration(minutes: 10)) {
       return;
     }
     
