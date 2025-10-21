@@ -63,7 +63,10 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
       final fpa = m['firstPassAt'] as String?;
       if (fpa != null) _firstPassAt = DateTime.tryParse(fpa);
       _nextEventIndex = (m['nextEventIndex'] as num?)?.toInt() ?? 0;
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Failed to restore alarm orchestrator state', 
+        domain: 'alarm', context: {'error': e.toString()});
+    }
   }
 
   AlarmOrchestratorImpl({int requiredPasses = 3, Duration minDwell = const Duration(seconds: 4)})
@@ -116,7 +119,10 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
           _timeEligible = true;
           _emit('ELIGIBILITY_CHANGED', {'timeEligible': true});
         }
-      } catch (_) {}
+      } catch (e) {
+        AppLogger.I.warn('Error checking time eligibility', 
+          domain: 'alarm', context: {'error': e.toString()});
+      }
     }
 
     bool inside = false;
@@ -196,12 +202,12 @@ class AlarmOrchestratorImpl implements AlarmOrchestrator {
     final prev = _lastEmitAt[key];
     if (prev != null && now.difference(prev) < emitTTL) {
       // Suppressed duplicate within TTL
-      try { AppMetrics.I.inc('orchestrator_suppressed'); } catch (_) {}
+      AppMetrics.I.inc('orchestrator_suppressed');
       return;
     }
     _lastEmitAt[key] = now;
     _eventsCtrl.add(AlarmEvent(type, now, data));
-    try { AppMetrics.I.inc('orchestrator_emit'); } catch (_) {}
+    AppMetrics.I.inc('orchestrator_emit');
   }
 
   @override

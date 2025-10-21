@@ -222,7 +222,13 @@ class BootstrapService {
       try { sub = service.on('sessionInfo').listen((data) { if (data == null) return; recovered = Map<String,dynamic>.from(data); print('GW_ARES_RECOVER_INFO_LATE event=$data'); completer.complete(); }); } catch (e) { print('GW_ARES_RECOVER_LISTEN_FAIL_LATE err=$e'); }
       try { service.invoke('requestSessionInfo'); } catch (e) { print('GW_ARES_RECOVER_INVOKE_FAIL_LATE err=$e'); }
       try { await completer.future.timeout(const Duration(milliseconds: 1500)); } catch (_) { print('GW_ARES_RECOVER_TIMEOUT_LATE'); }
-      try { await sub.cancel(); } catch (_) {}
+      try {
+        await sub.cancel();
+      } catch (e) {
+        if (!e.toString().contains('already') && !e.toString().contains('closed')) {
+          print('GW_ARES_RECOVER_CANCEL_FAIL err=$e');
+        }
+      }
       if (recovered != null && recovered!['empty'] != true && recovered!['error'] != true) {
         final lat = (recovered!['destinationLat'] as num?)?.toDouble();
         final lng = (recovered!['destinationLng'] as num?)?.toDouble();

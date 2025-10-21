@@ -4,6 +4,7 @@ import 'package:geowake2/models/route_models.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geowake2/services/log.dart';
 import 'package:geowake2/services/geometry/segment_projection.dart';
+import 'package:geowake2/config/tweakables.dart';
 
 /// A simple data class to store information about the closest point.
 class PointInfo {
@@ -58,7 +59,9 @@ PointInfo findClosestPointOnRouteSegmented(LatLng currentLocation, RouteModel ro
 /// For now, it returns a fixed base threshold—adapt this as needed.
 double determineThreshold(bool isOffline, LatLng currentLocation, RouteModel route) {
   // Base threshold: 600m when online, 1500m when offline.
-  double baseThreshold = isOffline ? 1500.0 : 600.0;
+  double baseThreshold = isOffline 
+      ? GeoWakeTweakables.deviationThresholdOfflineMeters 
+      : GeoWakeTweakables.deviationThresholdOnlineMeters;
 
   // (Optional) Add adjustments based on factors such as urban density, road type, or speed.
 

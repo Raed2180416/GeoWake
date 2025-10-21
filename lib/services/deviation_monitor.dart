@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../config/tweakables.dart';
 
 class DeviationState {
   final bool offroute;
@@ -20,7 +21,11 @@ class SpeedThresholdModel {
   final double base;
   final double k;
   final double hysteresisRatio;
-  const SpeedThresholdModel({this.base = 15.0, this.k = 1.5, this.hysteresisRatio = 0.7});
+  const SpeedThresholdModel({
+    this.base = GeoWakeTweakables.deviationSpeedThresholdBase,
+    this.k = GeoWakeTweakables.deviationSpeedThresholdK,
+    this.hysteresisRatio = GeoWakeTweakables.deviationHysteresisRatio,
+  });
 
   double high(double speedMps) => base + k * speedMps;
   double low(double speedMps) => hysteresisRatio * high(speedMps);
@@ -43,7 +48,7 @@ class DeviationMonitor {
   int? lastSustainDiffMs;
 
   DeviationMonitor({
-    this.sustainDuration = const Duration(seconds: 5),
+    this.sustainDuration = GeoWakeTweakables.deviationSustainDuration,
     this.model = const SpeedThresholdModel(),
     this.inclusiveEntry = false,
     this.syncStream = false,
