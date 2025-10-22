@@ -50,7 +50,7 @@ GeoWake is a smart, location-based wake-up app that makes your daily commute str
 
 ## 📁 Documentation
 
-### 📖 Production Readiness (NEW)
+### 📖 Production Readiness
 
 **[ULTRA_COMPREHENSIVE_PRODUCTION_ANALYSIS.md](ULTRA_COMPREHENSIVE_PRODUCTION_ANALYSIS.md)** ⭐⭐ **LATEST - MUST READ**
 - **NEW**: Most comprehensive analysis to date (Oct 21, 2025)
@@ -72,10 +72,15 @@ GeoWake is a smart, location-based wake-up app that makes your daily commute str
 - Recommended timeline (5-6 weeks to 95%)
 - Next actions
 
-**[FINAL_PRODUCTION_READINESS_REPORT.md](FINAL_PRODUCTION_READINESS_REPORT.md)** 📚 **Previous Analysis**
-- Previous assessment (now superseded)
-- Historical context
-- Earlier issue tracking
+**[ISSUES_TRACKER.md](ISSUES_TRACKER.md)** 📋 **Action Items**
+- Detailed issue tracking
+- 26 issues with effort estimates
+- Week-by-week action plan
+
+**[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** 📚 **Complete Guide**
+- Navigation guide to all documentation
+- Recommended reading order
+- Quick reference
 
 ### 🔧 Annotated Code
 
@@ -84,7 +89,7 @@ GeoWake is a smart, location-based wake-up app that makes your daily commute str
 - Line-by-line explanations
 - Technical rationale
 - Architecture decisions
-   - Cross-references
+- Cross-references
 
 ---
 
