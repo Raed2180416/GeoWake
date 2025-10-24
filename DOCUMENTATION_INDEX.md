@@ -107,6 +107,8 @@ Location: **[docs/](docs/)**
 
 | Document | Purpose |
 |----------|---------|
+| **[docs/ARCHITECTURE_BLOCK_DIAGRAM.md](docs/ARCHITECTURE_BLOCK_DIAGRAM.md)** | ⭐ Detailed block diagram of core logic implementation |
+| **[docs/ARCHITECTURE_DIAGRAM_MERMAID.md](docs/ARCHITECTURE_DIAGRAM_MERMAID.md)** | ⭐ Visual Mermaid diagrams (GitHub-renderable) |
 | **[docs/SSL_PINNING_SETUP.md](docs/SSL_PINNING_SETUP.md)** | SSL certificate pinning guide |
 | **[docs/ERROR_HANDLING_STANDARDS.md](docs/ERROR_HANDLING_STANDARDS.md)** | Error handling patterns |
 | **[docs/REFACTORING_FINAL_REPORT.md](docs/REFACTORING_FINAL_REPORT.md)** | Refactoring documentation |
