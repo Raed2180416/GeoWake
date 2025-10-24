@@ -288,6 +288,20 @@ See **[ULTRA_COMPREHENSIVE_PRODUCTION_ANALYSIS.md](ULTRA_COMPREHENSIVE_PRODUCTIO
 └─────────────────────────────────────────┘
 ```
 
+### Detailed Architecture Diagrams
+
+For comprehensive visual documentation of the app's core logic implementation, see:
+- **[ARCHITECTURE_BLOCK_DIAGRAM.md](docs/ARCHITECTURE_BLOCK_DIAGRAM.md)** - Detailed text-based block diagrams
+- **[ARCHITECTURE_DIAGRAM_MERMAID.md](docs/ARCHITECTURE_DIAGRAM_MERMAID.md)** - Visual Mermaid diagrams (GitHub-renderable)
+
+These diagrams cover:
+- Complete component architecture with 30+ services
+- Data flow through tracking & alarm systems
+- Background service architecture
+- State persistence & crash recovery
+- Security layers & validation
+- Battery optimization strategies
+
 ### Key Components
 
 - **TrackingService**: Background GPS tracking & alarm monitoring
