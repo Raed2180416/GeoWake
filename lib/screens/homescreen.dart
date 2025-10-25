@@ -5,11 +5,13 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geowake2/services/permission_service.dart';
+import 'package:geowake2/services/permission_monitor.dart';
 import 'package:geowake2/screens/otherimpservices/recent_locations_service.dart';
 import 'package:geowake2/services/places_service.dart';
 import 'package:geowake2/services/metro_stop_service.dart';
 import 'settingsdrawer.dart';
 import 'package:geowake2/services/trackingservice.dart';
+import 'package:geowake2/services/persistence/tracking_session_state.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
@@ -79,8 +81,14 @@ class HomeScreenState extends State<HomeScreen> {
       _offline.setOffline(_noConnectivity);
       // Inform tracking service about connectivity for reroute gating
       try {
+
         TrackingService().setOnline(!_noConnectivity);
-      } catch (_) {}
+
+      } catch (e) {
+
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+      }
     });
 
     _getCurrentLocation().then((pos) async {
@@ -348,6 +356,11 @@ class HomeScreenState extends State<HomeScreen> {
 
   Future<void> _proceedWithDirections() async {
     try {
+      // Check and request battery optimization whitelist before starting tracking
+      if (mounted) {
+        await PermissionMonitor.showBatteryOptimizationGuidance(context);
+      }
+      
       final Position? currentPosition = await _getCurrentLocation();
       if (currentPosition == null) {
         _showErrorDialog("Location Error", "Could not get your current location. Please enable location services.");
@@ -383,7 +396,136 @@ class HomeScreenState extends State<HomeScreen> {
       }
 
       final directions = await _fetchDirections(userLat, userLng, destLat, destLng);
-      final initialETA = directions['routes'][0]['legs'][0]['duration']['value'] as int;
+      int initialETA = 0;
+      double initialDistanceMeters = 0;
+      try {
+        final routes = (directions['routes'] as List?) ?? const [];
+        if (routes.isNotEmpty) {
+          final leg = ((routes.first as Map)['legs'] as List?)?.first as Map?;
+          final val = (leg?['duration'] as Map?)?['value'] as num?;
+          final traf = (leg?['duration_in_traffic'] as Map?)?['value'] as num?;
+          if (traf != null) initialETA = traf.toInt();
+          else if (val != null) initialETA = val.toInt();
+          else {
+            final txt = (leg?['duration'] as Map?)?['text'] as String?;
+            if (txt != null) {
+              final h = RegExp(r'(\d+(?:\.\d+)?)\s*h').firstMatch(txt.toLowerCase());
+              final m = RegExp(r'(\d+(?:\.\d+)?)\s*min').firstMatch(txt.toLowerCase());
+              double sec = 0;
+              if (h != null) sec += double.parse(h.group(1)!) * 3600.0;
+              if (m != null) sec += double.parse(m.group(1)!) * 60.0;
+              initialETA = sec.round();
+            }
+          }
+          // Extract distance from leg
+          final distVal = (leg?['distance'] as Map?)?['value'] as num?;
+          if (distVal != null) {
+            initialDistanceMeters = distVal.toDouble();
+          }
+        }
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
+      
+      // Compute alarm mode/value before validation
+      String alarmMode = _useDistanceMode ? 'distance' : 'time';
+      double alarmValue;
+      if (_metroMode && _useDistanceMode) {
+        alarmMode = 'stops';
+        alarmValue = _stopsSliderValue;
+      } else {
+        alarmValue = _useDistanceMode ? _distanceSliderValue : _timeSliderValue;
+      }
+      
+      // Validate threshold against actual route metrics and check if already at destination
+      bool alreadyWithinThreshold = false;
+      if (!_metroMode) { // Skip validation for metro/stops mode as it uses different logic
+        if (alarmMode == 'distance') {
+          // alarmValue is in km, initialDistanceMeters is in meters
+          final thresholdMeters = alarmValue * 1000.0;
+          if (initialDistanceMeters > 0) {
+            if (thresholdMeters > initialDistanceMeters) {
+              // Threshold is larger than total distance - invalid
+              if (!mounted) return;
+              _showErrorDialog(
+                "Invalid Threshold",
+                "Your alarm distance (${alarmValue.toStringAsFixed(1)} km) is greater than the distance to your destination (${(initialDistanceMeters / 1000.0).toStringAsFixed(1)} km). Please choose a smaller threshold."
+              );
+              setState(() {
+                _isTracking = false;
+                _isLoading = false;
+              });
+              return;
+            }
+            // Check if we're already within threshold (allow some small margin)
+            final straightLineDistance = Geolocator.distanceBetween(
+              userLat, userLng, destLat, destLng
+            );
+            if (straightLineDistance <= thresholdMeters) {
+              alreadyWithinThreshold = true;
+            }
+          }
+        } else if (alarmMode == 'time') {
+          // alarmValue is in minutes, initialETA is in seconds
+          final thresholdSeconds = alarmValue * 60.0;
+          if (initialETA > 0) {
+            if (thresholdSeconds > initialETA) {
+              // Threshold is larger than total ETA - invalid
+              if (!mounted) return;
+              final etaMinutes = initialETA / 60.0;
+              _showErrorDialog(
+                "Invalid Threshold",
+                "Your alarm time (${alarmValue.toStringAsFixed(0)} min) is greater than the ETA to your destination (${etaMinutes.toStringAsFixed(0)} min). Please choose a smaller threshold."
+              );
+              setState(() {
+                _isTracking = false;
+                _isLoading = false;
+              });
+              return;
+            }
+            // For time mode, check if ETA is already at or below threshold
+            if (initialETA <= thresholdSeconds) {
+              alreadyWithinThreshold = true;
+            }
+          }
+        }
+      }
+      
+      // If already within threshold, show immediate alarm notification
+      if (alreadyWithinThreshold) {
+        if (!mounted) return;
+        final shouldProceed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Already Near Destination'),
+              content: Text(
+                alarmMode == 'distance'
+                    ? 'You are already within ${alarmValue.toStringAsFixed(1)} km of your destination. The alarm will trigger immediately. Do you want to continue?'
+                    : 'Your ETA is already within ${alarmValue.toStringAsFixed(0)} minutes. The alarm will trigger immediately. Do you want to continue?'
+              ),
+              actions: <Widget>[
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.of(context).pop(false),
+                ),
+                TextButton(
+                  child: const Text('Continue'),
+                  onPressed: () => Navigator.of(context).pop(true),
+                ),
+              ],
+            );
+          },
+        ) ?? false;
+        
+        if (!shouldProceed) {
+          setState(() {
+            _isTracking = false;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
       
       final trackingService = TrackingService();
       // Register this route so ActiveRouteManager can snap/switch
@@ -397,16 +539,6 @@ class HomeScreenState extends State<HomeScreen> {
         );
       } catch (e) {
         dev.log('Failed to register route with TrackingService: $e', name: 'HomeScreen');
-      }
-      // Compute alarm mode/value. For metro+stops, use stops-based threshold.
-      String alarmMode = _useDistanceMode ? 'distance' : 'time';
-      double alarmValue;
-      if (_metroMode && _useDistanceMode) {
-        // When metro mode and 'stops' selected, send stops threshold directly
-        alarmMode = 'stops';
-        alarmValue = _stopsSliderValue;
-      } else {
-        alarmValue = _useDistanceMode ? _distanceSliderValue : _timeSliderValue;
       }
 
       await trackingService.startTracking(
@@ -431,7 +563,7 @@ class HomeScreenState extends State<HomeScreen> {
       };
 
       if (!context.mounted) return;
-      Navigator.pushReplacementNamed(context, '/preloadMap', arguments: mapArgs);
+  Navigator.pushReplacementNamed(context, '/preloadMap', arguments: mapArgs);
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -440,6 +572,15 @@ class HomeScreenState extends State<HomeScreen> {
 
     } catch (e) {
       dev.log("Error in _proceedWithDirections: $e", name: "HomeScreen");
+      // Provide richer diagnostics if available
+      try {
+        final body = ApiClient.lastDirectionsBody;
+        if (body != null) {
+          dev.log('Last directions body snapshot: ${body.toString()}', name: 'HomeScreen');
+        }
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
       if(mounted) {
          _showErrorDialog("Route Error", "Could not calculate the route. Please try again.");
          setState(() {
@@ -558,6 +699,62 @@ class HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                FutureBuilder<Map<String, dynamic>?>(
+                  future: TrackingSessionStateFile.load(),
+                  builder: (context, snapshot) {
+                    final session = snapshot.data;
+                    final canResume = session != null && !TrackingService.trackingActive;
+                    // Rescue auto-resume: if a session exists AND TrackingService.autoResumed was set (meaning main detected it)
+                    // but somehow we are rendering HomeScreen, push user to map.
+                    if (TrackingService.autoResumed && TrackingService.trackingActive) {
+                      // schedule microtask to navigate (avoid setState during build)
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        try {
+
+                          Navigator.of(context).pushNamedAndRemoveUntil('/mapTracking', (r) => false);
+
+                        } catch (e) {
+
+                          AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+                        }
+                      });
+                    }
+                    if (canResume) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.play_arrow),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade600),
+                          onPressed: () async {
+                            try {
+                              final lat = (session['destinationLat'] as num?)?.toDouble();
+                              final lng = (session['destinationLng'] as num?)?.toDouble();
+                              if (lat != null && lng != null) {
+                                final destName = session['destinationName'] as String? ?? 'Destination';
+                                final mode = session['alarmMode'] as String? ?? 'distance';
+                                final value = (session['alarmValue'] as num?)?.toDouble() ?? 1.0;
+                                final svc = TrackingService();
+                                await svc.startTracking(
+                                  destination: LatLng(lat, lng),
+                                  destinationName: destName,
+                                  alarmMode: mode,
+                                  alarmValue: value,
+                                );
+                                if (!mounted) return;
+                                Navigator.of(context).pushNamedAndRemoveUntil('/mapTracking', (r) => false);
+                              }
+                            } catch (e) {
+                              dev.log('Resume failed: $e', name: 'HomeScreen');
+                            }
+                          },
+                          label: const Text('Resume Tracking Session'),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
                 if (_noConnectivity)
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),

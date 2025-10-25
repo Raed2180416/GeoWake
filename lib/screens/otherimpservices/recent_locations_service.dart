@@ -1,5 +1,6 @@
 import 'package:hive_flutter/hive_flutter.dart';
 import 'dart:developer' as dev;
+import '../../services/secure_hive_init.dart';
 
 class RecentLocationsService {
   static const String boxName = 'recent_locations';
@@ -8,22 +9,22 @@ class RecentLocationsService {
   static const int _maxItems = 15;
 
   // This is the gatekeeper function. It ensures the box is open and ready.
-  // It's the most critical part of the fix.
+  // Now uses encrypted box for security.
   static Future<void> _ensureBoxIsOpen() async {
     if (_box != null && _box!.isOpen) return;
     if (_opening != null) return _opening; // Another caller is opening
     _opening = () async {
       try {
-        _box = await Hive.openBox(boxName);
-        dev.log("Hive box '$boxName' opened successfully.", name: "RecentLocationsService");
+        _box = await SecureHiveInit.openEncryptedBox(boxName);
+        dev.log("Encrypted Hive box '$boxName' opened successfully.", name: "RecentLocationsService");
       } catch (e) {
-        dev.log("Error opening Hive box: $e. This may indicate corruption.", name: "RecentLocationsService");
+        dev.log("Error opening encrypted Hive box: $e. This may indicate corruption.", name: "RecentLocationsService");
         try {
           await Hive.deleteBoxFromDisk(boxName);
-          _box = await Hive.openBox(boxName);
-          dev.log("Corrupted box deleted and recreated successfully.", name: "RecentLocationsService");
+          _box = await SecureHiveInit.openEncryptedBox(boxName);
+          dev.log("Corrupted box deleted and encrypted box recreated successfully.", name: "RecentLocationsService");
         } catch (recreateError) {
-          dev.log("Failed to recreate box after corruption: $recreateError", name: "RecentLocationsService");
+          dev.log("Failed to recreate encrypted box after corruption: $recreateError", name: "RecentLocationsService");
           rethrow;
         }
       }

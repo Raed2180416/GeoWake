@@ -35,6 +35,12 @@ class DirectionService {
     required bool transitMode,
     bool forceRefresh = false,
   }) async {
+    // Ensure ApiClient is ready on first run (bootstrap late init may still be running)
+    try {
+      await _apiClient.initialize();
+    } catch (e) {
+      Log.w('DirectionService', 'API client initialization warning (may already be initialized): $e');
+    }
     // L2 persistent cache check (Hive)
     final origin = LatLng(startLat, startLng);
     final dest = LatLng(endLat, endLng);
@@ -80,15 +86,44 @@ class DirectionService {
 
     try {
       // REPLACE THE DIRECT HTTP CALL WITH API CLIENT
-      final directions = await _apiClient.getDirections(
+      final resp = await _apiClient.getDirections(
         origin: '$startLat,$startLng',
         destination: '$endLat,$endLng',
         mode: transitMode ? 'transit' : 'driving',
         transitMode: transitMode ? 'rail' : null,
       );
-
-      if (directions['status'] != 'OK' || (directions['routes'] as List).isEmpty) {
-        throw Exception("No feasible route found: ${directions['error_message'] ?? directions['status']}");
+      // Do not overwrite ApiClient.lastDirectionsBody here; ApiClient records the request payload itself in test mode
+      // Normalize shape: backend may return top-level or nested under 'data'
+      Map<String, dynamic> directions = resp;
+      if (directions['routes'] == null && directions['data'] is Map<String, dynamic>) {
+        directions = (directions['data'] as Map<String, dynamic>);
+      }
+      final routes = (directions['routes'] as List?) ?? const [];
+      final status = directions['status'] as String?; // optional
+      if (routes.isEmpty || (status != null && status != 'OK')) {
+        final err = directions['error_message'] ?? status ?? 'NO_STATUS';
+        // If transit failed, try a single fallback to driving to avoid user-facing errors
+        if (transitMode) {
+          dev.log('Transit directions failed ($err). Falling back to driving…', name: 'DirectionService');
+          final resp2 = await _apiClient.getDirections(
+            origin: '$startLat,$startLng',
+            destination: '$endLat,$endLng',
+            mode: 'driving',
+          );
+          Map<String, dynamic> d2 = resp2;
+          if (d2['routes'] == null && d2['data'] is Map<String, dynamic>) {
+            d2 = (d2['data'] as Map<String, dynamic>);
+          }
+          final routes2 = (d2['routes'] as List?) ?? const [];
+          final status2 = d2['status'] as String?;
+          if (routes2.isEmpty || (status2 != null && status2 != 'OK')) {
+            throw Exception('No route available. Please try a different destination or check your connection.');
+          }
+          directions = d2; // use fallback
+        } else {
+          dev.log('Route lookup failed: routes=${routes.length} status=$status err=$err', name: 'DirectionService');
+          throw Exception('Unable to find a route to this destination. Please try a different location.');
+        }
       }
 
       // --- Simplify & compress the overview polyline ---
@@ -130,11 +165,17 @@ class DirectionService {
       } catch (e) {
         dev.log('Failed to persist route cache: $e', name: 'DirectionService');
       }
-      return directions;
+  return directions;
 
     } catch (e) {
       dev.log("Error fetching directions via API client: $e", name: "DirectionService");
-      throw Exception("Failed to fetch directions: $e");
+      // If it's already a user-friendly exception, rethrow it
+      if (e.toString().contains('No route available') || 
+          e.toString().contains('Unable to find a route')) {
+        rethrow;
+      }
+      // Otherwise, provide a generic user-friendly message
+      throw Exception("Unable to calculate route. Please check your internet connection and try again.");
     }
   }
 
@@ -185,9 +226,16 @@ class DirectionService {
         currentTransitLine = null;
         currentNonTransitMode = firstMode;
       }
-      // Decode, simplify, then add first step points.
-  List<LatLng> simplifiedPoints = _decodeAndSimplifyCached(firstStep['polyline']['points'], 10);
-      groupPoints.addAll(simplifiedPoints);
+      // Decode, simplify, then add first step points (guard missing polyline).
+      try {
+        final ptsStr = (firstStep['polyline'] is Map) ? firstStep['polyline']['points'] as String? : null;
+        if (ptsStr != null) {
+          List<LatLng> simplifiedPoints = _decodeAndSimplifyCached(ptsStr, 10);
+          groupPoints.addAll(simplifiedPoints);
+        }
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
 
       for (int i = 1; i < steps.length; i++) {
         var step = steps[i];
@@ -225,8 +273,15 @@ class DirectionService {
         }
 
         if (sameGroup) {
-          List<LatLng> simplifiedStepPoints = _decodeAndSimplifyCached(step['polyline']['points'], 10);
-          groupPoints.addAll(simplifiedStepPoints);
+          try {
+            final ptsStr = (step['polyline'] is Map) ? step['polyline']['points'] as String? : null;
+            if (ptsStr != null) {
+              List<LatLng> simplifiedStepPoints = _decodeAndSimplifyCached(ptsStr, 10);
+              groupPoints.addAll(simplifiedStepPoints);
+            }
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         } else {
           Color groupColor;
           if (currentGroupType == "non_transit") {
@@ -258,9 +313,16 @@ class DirectionService {
           currentGroupType = stepGroupType;
           currentTransitLine = stepTransitLine;
           currentNonTransitMode = stepNonTransitMode;
-          List<LatLng> rawStepPoints = decodePolyline(step['polyline']['points']);
-          List<LatLng> simplifiedStepPoints = PolylineSimplifier.simplifyPolyline(rawStepPoints, 10);
-          groupPoints.addAll(simplifiedStepPoints);
+          // Use cached decode+simplify for consistency
+          try {
+            final ptsStr = (step['polyline'] is Map) ? step['polyline']['points'] as String? : null;
+            if (ptsStr != null) {
+              List<LatLng> simplifiedStepPoints = _decodeAndSimplifyCached(ptsStr, 10);
+              groupPoints.addAll(simplifiedStepPoints);
+            }
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
         }
       }
 
@@ -292,7 +354,24 @@ class DirectionService {
         ));
       }
     }
-
+    // Fallback: if no segmented polylines built (e.g., missing step polylines), use overview polyline
+    if (polylines.isEmpty) {
+      try {
+        final route = directions['routes'][0];
+        final ov = (route['overview_polyline'] as Map?)?['points'] as String?;
+        if (ov != null) {
+          final decoded = _decodeAndSimplifyCached(ov, 10);
+            polylines.add(Polyline(
+              polylineId: const PolylineId('overview_fallback'),
+              points: decoded,
+              color: transitMode ? Colors.green : Colors.blue,
+              width: 5,
+            ));
+        }
+      } catch (e) {
+        AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+      }
+    }
     return polylines;
   }
 

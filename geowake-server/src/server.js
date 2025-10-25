@@ -12,6 +12,7 @@ const { slowDownRules, handleRateLimitError } = require('./middleware/security')
 // Import routes
 const authRoutes = require('./routes/auth');
 const mapsRoutes = require('./routes/maps');
+const healthRoutes = require('./routes/health');
 
 const app = express();
 
@@ -77,16 +78,8 @@ app.get('/', (req, res) => {
   });
 });
 
-// Add health check endpoint BEFORE other routes
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'GeoWake Server is running',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: config.nodeEnv
-  });
-});
+// Health check routes (no auth required)
+app.use('/api/health', healthRoutes);
 
 // Authentication routes (no auth required)
 app.use('/api/auth', authRoutes);

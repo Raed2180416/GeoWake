@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GeoWake</string>
+    <string name="notification_action_end_tracking">End Tracking</string>
+    <string name="notification_action_ignore_tracking">Ignore</string>
+</resources>

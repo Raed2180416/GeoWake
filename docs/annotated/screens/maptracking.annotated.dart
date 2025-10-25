@@ -204,41 +204,38 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> { // Stateful con
       );
     });
 
-    // Listen for continuous route state to compute ETA and remaining distance.
-    _routeStateSub ??= TrackingService().activeRouteStateStream.listen((state) { // Update summary cards.
-      if (!mounted) return; // Guard.
-      // Remaining distance from manager
-      final remainingM = state.remainingMeters; // Remaining meters provided by manager.
-    // Derive ETA using a fallback speed; will be replaced by fusion/dead-reckoning later
-      double etaSec; // Local ETA seconds.
-      final fallbackSpeed = 12.0; // ~43 km/h; TODO: replace with fusion when ready
-      etaSec = remainingM / fallbackSpeed; // Simple division.
-      // Format
-      String etaStr; // Human readable ETA.
-      if (etaSec < 90) {
-        etaStr = '${etaSec.toStringAsFixed(0)} sec remaining';
-      } else if (etaSec < 3600) {
-        etaStr = '${(etaSec / 60).toStringAsFixed(0)} min remaining';
-      } else {
-        etaStr = '${(etaSec / 3600).toStringAsFixed(1)} hr remaining';
+    // Listen for continuous route state; compute remaining and ETA centrally.
+    _routeStateSub ??= TrackingService().activeRouteStateStream.listen((state) {
+      if (!mounted) return;
+      final remainingM = state.remainingMeters;
+      final progress = (_routeLengthMeters - remainingM).clamp(0.0, _routeLengthMeters);
+      double? etaSec = EtaUtils.etaRemainingSeconds(
+        progressMeters: progress,
+        stepBoundariesMeters: _stepBoundariesMeters,
+        stepDurationsSeconds: _stepDurationsSeconds,
+      );
+      if (etaSec == null) {
+        const fallbackSpeed = 12.0;
+        etaSec = remainingM / fallbackSpeed;
       }
-      String distStr = remainingM >= 1000
+      final String etaStr = etaSec < 90
+          ? '${etaSec.toStringAsFixed(0)} sec remaining'
+          : etaSec < 3600
+              ? '${(etaSec / 60).toStringAsFixed(0)} min remaining'
+              : '${(etaSec / 3600).toStringAsFixed(1)} hr remaining';
+      final String distStr = remainingM >= 1000
           ? '${(remainingM / 1000).toStringAsFixed(2)} km to destination'
           : '${remainingM.toStringAsFixed(0)} m to destination';
-
-      String? switchMsg; // Upcoming transfer display.
+      String? switchMsg;
       if (state.pendingSwitchToKey != null && state.pendingSwitchInSeconds != null) {
-        final secs = state.pendingSwitchInSeconds!; // Seconds until switch.
-        final when = secs < 60
-            ? '${secs.toStringAsFixed(0)} sec'
-            : '${(secs / 60).toStringAsFixed(0)} min'; // Humanize.
-        switchMsg = "You'll have to switch routes in $when"; // Compose.
+        final secs = state.pendingSwitchInSeconds!;
+        final when = secs < 60 ? '${secs.toStringAsFixed(0)} sec' : '${(secs / 60).toStringAsFixed(0)} min';
+        switchMsg = "You'll have to switch routes in $when";
       }
-
       setState(() {
-        _etaText = etaStr; // Apply ETA.
-        _distanceText = distStr; // Apply distance.
-        _switchNotice = switchMsg; // Apply notice.
+        _etaText = etaStr;
+        _distanceText = distStr;
+        _switchNotice = switchMsg;
       });
     });
   }
@@ -260,7 +257,7 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> { // Stateful con
         final v = rawSpeed < 0.5 && _speedEmaMps != null ? _speedEmaMps! : rawSpeed; // Avoid overreacting to near-zero noise.
         _speedEmaMps = _speedEmaMps == null ? v : (_speedEmaMps! * 0.8 + v * 0.2); // EMA smoothing.
       }
-      // Prefer snapped position onto the route if available
+      // Prefer snapped position onto the route if available; marker-only updates here
       LatLng markerPos = _currentUserLocation!; // Default marker position.
       if (_routePoints.length >= 2) { // Snap only when polyline ready.
         final snap = SnapToRouteEngine.snap(
@@ -271,50 +268,6 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> { // Stateful con
         );
         _lastSnapIndex = snap.segmentIndex; // Update hint.
         markerPos = snap.snappedPoint; // Snapped marker.
-        // Compute remaining distance and ETA locally
-        final progress = snap.progressMeters; // Meters progressed along polyline.
-        final remaining = (_routeLengthMeters - progress).clamp(0.0, double.infinity); // Clamp non-negative.
-        // Prefer ETA from directions step durations (no API) if available; fallback to speed-based
-        double? etaSec = EtaUtils.etaRemainingSeconds(
-          progressMeters: progress,
-          stepBoundariesMeters: _stepBoundariesMeters,
-          stepDurationsSeconds: _stepDurationsSeconds,
-        );
-        if (etaSec == null) {
-          final spd = (_speedEmaMps != null && _speedEmaMps! > 0.5) ? _speedEmaMps! : 12.0; // Fallback speed.
-          etaSec = remaining / spd; // Simple estimate.
-        }
-        final etaStr = etaSec < 90
-            ? '${etaSec.toStringAsFixed(0)} sec remaining'
-            : etaSec < 3600
-                ? '${(etaSec / 60).toStringAsFixed(0)} min remaining'
-                : '${(etaSec / 3600).toStringAsFixed(1)} hr remaining'; // Format.
-        final distStr = remaining >= 1000
-            ? '${(remaining / 1000).toStringAsFixed(2)} km to destination'
-            : '${remaining.toStringAsFixed(0)} m to destination'; // Format.
-
-        String? switchMsg; // Next transfer banner.
-        if (_transferBoundariesMeters.isNotEmpty) {
-          final next = _transferBoundariesMeters.firstWhere(
-            (b) => b > progress,
-            orElse: () => -1,
-          );
-          if (next > 0) {
-            final toSwitchM = next - progress; // Meters until next transfer.
-            final spd = (_speedEmaMps != null && _speedEmaMps! > 0.5) ? _speedEmaMps! : 12.0; // Fallback speed.
-            final tSec = toSwitchM / spd; // Seconds to transfer.
-            final when = tSec < 60 ? '${tSec.toStringAsFixed(0)} sec' : '${(tSec / 60).toStringAsFixed(0)} min'; // Humanize.
-            switchMsg = "You'll have to switch routes in $when"; // Compose.
-          }
-        }
-        if (mounted) {
-          setState(() {
-            _etaText = etaStr; // Update.
-            _distanceText = distStr; // Update.
-            _switchNotice = switchMsg; // Update.
-            // metrics ready // Marker update below.
-          });
-        }
       }
       // Update the marker for current (snapped) location.
       setState(() {

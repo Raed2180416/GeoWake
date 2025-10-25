@@ -11,6 +11,8 @@ import 'package:geolocator/geolocator.dart';
 import 'settingsdrawer.dart';
 import 'package:geowake2/services/snap_to_route.dart';
 import 'package:geowake2/services/trackingservice.dart';
+import 'package:geowake2/config/alarm_thresholds.dart';
+import 'package:geowake2/services/movement_classifier.dart';
 import 'package:geowake2/services/active_route_manager.dart';
 import 'package:geowake2/services/transfer_utils.dart';
 import 'package:geowake2/widgets/pulsing_dots.dart';
@@ -18,6 +20,8 @@ import 'package:geowake2/services/eta_utils.dart';
 import 'package:geowake2/services/alarm_player.dart';
 import 'package:geowake2/services/notification_service.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:geowake2/services/persistence/tracking_session_state.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class MapTrackingScreen extends StatefulWidget {
   MapTrackingScreen({Key? key}) : super(key: key);
@@ -43,50 +47,216 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
 
   // StreamSubscription to update the current location marker.
   StreamSubscription<Position>? _locationSubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   LatLng? _currentUserLocation;
   List<LatLng> _routePoints = const [];
+  bool _isOnline = true;
   int? _lastSnapIndex;
   StreamSubscription<RouteSwitchEvent>? _routeSwitchSub;
   StreamSubscription<ActiveRouteState>? _routeStateSub;
   double _routeLengthMeters = 0.0;
   double? _speedEmaMps; // simple smoothed speed estimate
+  final MovementClassifier _uiMovementClassifier = MovementClassifier();
   final List<double> _transferBoundariesMeters = [];
   final List<double> _stepBoundariesMeters = [];
   final List<double> _stepDurationsSeconds = [];
 
+  Future<void> _initFromSessionLazy() async {
+    try {
+      final session = await TrackingSessionStateFile.load();
+      if (session == null) {
+        dev.log('MapTrackingScreen: lazy session load failed (null)', name: 'MapTrackingScreen');
+        return;
+      }
+      _destinationLat = (session['destinationLat'] as num?)?.toDouble();
+      _destinationLng = (session['destinationLng'] as num?)?.toDouble();
+      _destinationName = session['destinationName'] as String? ?? 'Destination';
+      _metroMode = (session['alarmMode'] == 'stops');
+      if (_destinationLat == null || _destinationLng == null) {
+        dev.log('MapTrackingScreen: lazy session missing lat/lng', name: 'MapTrackingScreen');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _hasValidArgs = true;
+        _markers = {
+          Marker(
+            markerId: const MarkerId('destinationMarker'),
+            position: LatLng(_destinationLat!, _destinationLng!),
+            infoWindow: InfoWindow(title: _destinationName ?? 'Destination'),
+          ),
+        };
+        _isLoading = false; // Minimal ready
+      });
+      dev.log('MapTrackingScreen: initialized from lazy session (no directions)', name: 'MapTrackingScreen');
+      // Attempt route rehydration if auto-resumed and we have a destination.
+      if (TrackingService.autoResumed) {
+        _rehydrateDirectionsIfNeeded();
+      }
+    } catch (e) {
+      dev.log('MapTrackingScreen: lazy session exception $e', name: 'MapTrackingScreen');
+    }
+  }
+
+  Future<void> _rehydrateDirectionsIfNeeded() async {
+    if (_destinationLat == null || _destinationLng == null) return;
+    if (_polylines.isNotEmpty && _routePoints.isNotEmpty) return; // already have
+    dev.log('GW_RESUME_ROUTE_FETCH start', name: 'MapTrackingScreen');
+    final int tStart = DateTime.now().millisecondsSinceEpoch;
+    try {
+
+      final pos = _currentUserLocation;
+      Position? fresh;
+      if (pos == null) {
+        try { fresh = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+
+    } catch (e) {
+
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+
+    }
+      }
+      final startLat = pos?.latitude ?? fresh?.latitude ?? _destinationLat!; // fall back to dest (degenerate) if no loc yet
+      final startLng = pos?.longitude ?? fresh?.longitude ?? _destinationLng!;
+      final ds = DirectionService();
+      final dirs = await ds.getDirections(
+        startLat,
+        startLng,
+        _destinationLat!,
+        _destinationLng!,
+        isDistanceMode: true,
+        threshold: 1.0,
+        transitMode: _metroMode,
+        forceRefresh: true,
+      );
+      directions = dirs;
+      if (_metroMode) {
+        List<Polyline> segmented = ds.buildSegmentedPolylines(directions!, true);
+        if (segmented.isEmpty) {
+          // Retry once in case steps missing due to transient API issue
+          dev.log('GW_RESUME_ROUTE_SEGMENT_RETRY metro segmentation empty; refetching', name: 'MapTrackingScreen');
+          try {
+            final retryDirs = await ds.getDirections(
+              startLat,
+              startLng,
+              _destinationLat!,
+              _destinationLng!,
+              isDistanceMode: true,
+              threshold: 1.0,
+              transitMode: _metroMode,
+              forceRefresh: true,
+            );
+            directions = retryDirs;
+            segmented = ds.buildSegmentedPolylines(directions!, true);
+          } catch (e) {
+            dev.log('GW_RESUME_ROUTE_SEGMENT_RETRY_FAIL err=$e', name: 'MapTrackingScreen');
+          }
+        }
+        if (segmented.isNotEmpty) {
+          setState(() {
+            _polylines = segmented.toSet();
+            _routePoints = segmented.expand((p) => p.points).toList(growable: false);
+          });
+          _buildTransferBoundariesFromDirections();
+          _buildStepBoundariesAndDurations();
+        } else {
+          dev.log('GW_RESUME_ROUTE_SEGMENT_FALLBACK no segmented polylines', name: 'MapTrackingScreen');
+        }
+      } else {
+        final segmented = DirectionService().buildSegmentedPolylines(directions!, false);
+        if (segmented.isNotEmpty) {
+          setState(() {
+            _polylines = segmented.toSet();
+            _routePoints = segmented.expand((p) => p.points).toList(growable: false);
+          });
+        } else {
+          try {
+            final route = directions!['routes'][0];
+            final String encodedPolyline = route['overview_polyline']['points'] as String;
+            final points = PolylineSimplifier.simplifyPolyline(decodePolyline(encodedPolyline), 10);
+            setState(() {
+              _polylines = { Polyline(polylineId: const PolylineId('route'), points: points, color: Colors.blue, width: 4) };
+              _routePoints = points;
+            });
+          } catch (e) {
+            dev.log('GW_RESUME_ROUTE_FALLBACK_FAIL err=$e', name: 'MapTrackingScreen');
+          }
+        }
+        _transferBoundariesMeters.clear();
+        _buildStepBoundariesAndDurations();
+      }
+      _computeRouteLength();
+      // After obtaining route, compute metrics from current (or fallback) position
+      final userLat = startLat;
+      final userLng = startLng;
+      _computeInitialMetrics(userLat, userLng);
+      _adjustCamera(userLat, userLng);
+      final int tDone = DateTime.now().millisecondsSinceEpoch;
+      final int dt = tDone - tStart;
+      dev.log('GW_RESUME_ROUTE_READY ok pts=${_routePoints.length} dtMs=$dt', name: 'MapTrackingScreen');
+      if (dt > 5000) {
+        dev.log('GW_RESUME_ROUTE_SLOW dtMs=$dt attempts=$_rehydrationAttempts', name: 'MapTrackingScreen');
+      }
+    } catch (e) {
+      dev.log('GW_RESUME_ROUTE_FAIL err=$e', name: 'MapTrackingScreen');
+    }
+  }
+
+  // Deferred retry scheduler for auto-resume when GPS not yet ready or network/directions failed.
+  Timer? _rehydrationRetryTimer;
+  int _rehydrationAttempts = 0;
+  static const int _rehydrationMaxAttempts = 5;
+
+  void _scheduleRehydrationRetry({String reason = 'unspecified'}) {
+    if (!TrackingService.autoResumed) return; // only for auto resume path
+    if (_polylines.isNotEmpty) return; // already resolved
+    if (_rehydrationAttempts >= _rehydrationMaxAttempts) {
+      dev.log('GW_RESUME_ROUTE_GIVEUP attempts=$_rehydrationAttempts reason=$reason', name: 'MapTrackingScreen');
+      return;
+    }
+    _rehydrationAttempts += 1;
+    final backoffMs = 400 * _rehydrationAttempts; // linear backoff (0.4s,0.8s,... up to 2s)
+    dev.log('GW_RESUME_ROUTE_RETRY in ${backoffMs}ms attempt=$_rehydrationAttempts reason=$reason', name: 'MapTrackingScreen');
+    _rehydrationRetryTimer?.cancel();
+    _rehydrationRetryTimer = Timer(Duration(milliseconds: backoffMs), () {
+      _rehydrateDirectionsIfNeeded();
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final args =
-        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    dev.log("MapTrackingScreen received args: ${args.toString()}",
-        name: "MapTrackingScreen");
-    if (args == null ||
-        args['lat'] == null ||
-        args['lng'] == null ||
-        args['destination'] == null ||
-        args['directions'] == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Error"),
-            content: const Text("Destination information missing."),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.pop(context);
-                },
-                child: const Text("OK"),
-              ),
-            ],
-          ),
-        );
-      });
-      return;
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    dev.log("MapTrackingScreen received args: ${args.toString()}", name: "MapTrackingScreen");
+    if (args == null || args['lat'] == null || args['lng'] == null || args['destination'] == null) {
+      // Fallback: If auto resume flagged, try to lazily load session (lightweight) and initialize minimal state.
+      if (TrackingService.autoResumed) {
+        dev.log('MapTrackingScreen: missing route args; attempting lazy session load', name: 'MapTrackingScreen');
+        _initFromSessionLazy();
+        return;
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Error"),
+              content: const Text("Destination information missing."),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    Navigator.pop(context);
+                  },
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          );
+        });
+        return;
+      }
     }
-    _hasValidArgs = true;
+    _hasValidArgs = true;    
     _destinationName = args['destination'];
     _destinationLat = args['lat'];
     _destinationLng = args['lng'];
@@ -175,7 +345,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
             });
             dev.log("Error processing directions data: $e", name: "MapTrackingScreen");
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("Error processing directions data: $e")),
+              const SnackBar(
+                content: Text("Unable to load route map. Please check your connection and try again."),
+              ),
             );
           }
         }
@@ -185,6 +357,10 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         _isLoading = false;
       });
       dev.log("No valid routes in directions data", name: "MapTrackingScreen");
+      if (TrackingService.autoResumed) {
+        // Attempt rehydration if we launched with auto-resume but had no directions args.
+        _rehydrateDirectionsIfNeeded();
+      }
     }
 
     // Start listening for location updates to update the current location marker.
@@ -200,34 +376,48 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       );
     });
 
+    // Listen for connectivity changes to show offline indicator
+    _connectivitySubscription ??= Connectivity().onConnectivityChanged.listen((results) {
+      if (!mounted) return;
+      setState(() {
+        _isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+      });
+    });
+
     // Listen for continuous route state to compute ETA and remaining distance.
     _routeStateSub ??= TrackingService().activeRouteStateStream.listen((state) {
       if (!mounted) return;
-      // Remaining distance from manager
+      // Prefer manager-provided remaining to avoid drift
       final remainingM = state.remainingMeters;
-    // Derive ETA using a fallback speed; will be replaced by fusion/dead-reckoning later
-      double etaSec;
-      final fallbackSpeed = 12.0; // ~43 km/h; TODO: replace with fusion when ready
-      etaSec = remainingM / fallbackSpeed;
-      // Format
-      String etaStr;
-      if (etaSec < 90) {
-        etaStr = '${etaSec.toStringAsFixed(0)} sec remaining';
-      } else if (etaSec < 3600) {
-        etaStr = '${(etaSec / 60).toStringAsFixed(0)} min remaining';
-      } else {
-        etaStr = '${(etaSec / 3600).toStringAsFixed(1)} hr remaining';
+
+      // Derive progress from remaining and precomputed route length
+      final progress = (_routeLengthMeters - remainingM).clamp(0.0, _routeLengthMeters);
+
+      // Prefer step-based ETA when step boundaries/durations are present
+      double? etaSec = EtaUtils.etaRemainingSeconds(
+        progressMeters: progress,
+        stepBoundariesMeters: _stepBoundariesMeters,
+        stepDurationsSeconds: _stepDurationsSeconds,
+      );
+      if (etaSec == null) {
+        final rep = _uiMovementClassifier.representativeSpeed();
+        etaSec = rep > 0 ? remainingM / rep : remainingM / ThresholdsProvider.current.fallbackWalkMps;
       }
-      String distStr = remainingM >= 1000
+
+      // Format strings once here (single source of truth)
+      final String etaStr = etaSec < 90
+          ? '${etaSec.toStringAsFixed(0)} sec remaining'
+          : etaSec < 3600
+              ? '${(etaSec / 60).toStringAsFixed(0)} min remaining'
+              : '${(etaSec / 3600).toStringAsFixed(1)} hr remaining';
+      final String distStr = remainingM >= 1000
           ? '${(remainingM / 1000).toStringAsFixed(2)} km to destination'
           : '${remainingM.toStringAsFixed(0)} m to destination';
 
       String? switchMsg;
       if (state.pendingSwitchToKey != null && state.pendingSwitchInSeconds != null) {
         final secs = state.pendingSwitchInSeconds!;
-        final when = secs < 60
-            ? '${secs.toStringAsFixed(0)} sec'
-            : '${(secs / 60).toStringAsFixed(0)} min';
+        final when = secs < 60 ? '${secs.toStringAsFixed(0)} sec' : '${(secs / 60).toStringAsFixed(0)} min';
         switchMsg = "You'll have to switch routes in $when";
       }
 
@@ -243,20 +433,26 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
     // Use high accuracy updates in the foreground.
     LocationSettings settings = const LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // Update when moved 5 meters.
+      distanceFilter: 5,
     );
     _locationSubscription =
         Geolocator.getPositionStream(locationSettings: settings).listen((position) {
       _currentUserLocation = LatLng(position.latitude, position.longitude);
       dev.log("MapTrackingScreen: New user location: (${position.latitude}, ${position.longitude})",
           name: "MapTrackingScreen");
-      // Smooth speed estimate
+      // If auto-resumed and we still haven't rebuilt polylines, try again once we have the first usable fix.
+      if (TrackingService.autoResumed && _polylines.isEmpty) {
+        _scheduleRehydrationRetry(reason: 'gps_fix');
+      }
+      // Smooth speed estimate (retained for possible UI or fallback)
       final rawSpeed = position.speed; // m/s
       if (rawSpeed.isFinite && rawSpeed >= 0) {
+        _uiMovementClassifier.add(rawSpeed);
         final v = rawSpeed < 0.5 && _speedEmaMps != null ? _speedEmaMps! : rawSpeed;
-        _speedEmaMps = _speedEmaMps == null ? v : (_speedEmaMps! * 0.8 + v * 0.2);
+        _speedEmaMps = _speedEmaMps == null ? v : (_speedEmaMps! * 0.8 + v * 0.2); // keep EMA for any legacy UI uses
       }
-      // Prefer snapped position onto the route if available
+
+      // Snap only for marker rendering; do not recompute ETA/distance here
       LatLng markerPos = _currentUserLocation!;
       if (_routePoints.length >= 2) {
         final snap = SnapToRouteEngine.snap(
@@ -267,51 +463,8 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         );
         _lastSnapIndex = snap.segmentIndex;
         markerPos = snap.snappedPoint;
-        // Compute remaining distance and ETA locally
-        final progress = snap.progressMeters;
-        final remaining = (_routeLengthMeters - progress).clamp(0.0, double.infinity);
-        // Prefer ETA from directions step durations (no API) if available; fallback to speed-based
-        double? etaSec = EtaUtils.etaRemainingSeconds(
-          progressMeters: progress,
-          stepBoundariesMeters: _stepBoundariesMeters,
-          stepDurationsSeconds: _stepDurationsSeconds,
-        );
-        if (etaSec == null) {
-          final spd = (_speedEmaMps != null && _speedEmaMps! > 0.5) ? _speedEmaMps! : 12.0;
-          etaSec = remaining / spd;
-        }
-        final etaStr = etaSec < 90
-            ? '${etaSec.toStringAsFixed(0)} sec remaining'
-            : etaSec < 3600
-                ? '${(etaSec / 60).toStringAsFixed(0)} min remaining'
-                : '${(etaSec / 3600).toStringAsFixed(1)} hr remaining';
-        final distStr = remaining >= 1000
-            ? '${(remaining / 1000).toStringAsFixed(2)} km to destination'
-            : '${remaining.toStringAsFixed(0)} m to destination';
-
-        String? switchMsg;
-        if (_transferBoundariesMeters.isNotEmpty) {
-          final next = _transferBoundariesMeters.firstWhere(
-            (b) => b > progress,
-            orElse: () => -1,
-          );
-          if (next > 0) {
-            final toSwitchM = next - progress;
-            final spd = (_speedEmaMps != null && _speedEmaMps! > 0.5) ? _speedEmaMps! : 12.0;
-            final tSec = toSwitchM / spd;
-            final when = tSec < 60 ? '${tSec.toStringAsFixed(0)} sec' : '${(tSec / 60).toStringAsFixed(0)} min';
-            switchMsg = "You'll have to switch routes in $when";
-          }
-        }
-        if (mounted) {
-          setState(() {
-            _etaText = etaStr;
-            _distanceText = distStr;
-            _switchNotice = switchMsg;
-            // metrics ready
-          });
-        }
       }
+
       // Update the marker for current (snapped) location.
       setState(() {
         _markers.removeWhere((m) => m.markerId.value == 'currentLocationMarker');
@@ -336,8 +489,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       stepDurationsSeconds: _stepDurationsSeconds,
     );
     if (etaSec == null) {
-      final spd = 12.0;
-      etaSec = remaining / spd;
+      _uiMovementClassifier.add(_speedEmaMps ?? 0);
+      final rep = _uiMovementClassifier.representativeSpeed();
+      etaSec = rep > 0 ? remaining / rep : remaining / ThresholdsProvider.current.fallbackWalkMps;
     }
     final etaStr = etaSec < 90
         ? '${etaSec.toStringAsFixed(0)} sec remaining'
@@ -352,8 +506,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
       final next = _transferBoundariesMeters.firstWhere((b) => b > progress, orElse: () => -1);
       if (next > 0) {
         final toSwitchM = next - progress;
-        final spd = 12.0;
-        final tSec = toSwitchM / spd;
+  _uiMovementClassifier.add(_speedEmaMps ?? 0);
+  final rep = _uiMovementClassifier.representativeSpeed();
+  final tSec = toSwitchM / (rep > 0 ? rep : ThresholdsProvider.current.fallbackWalkMps);
         final when = tSec < 60 ? '${tSec.toStringAsFixed(0)} sec' : '${(tSec / 60).toStringAsFixed(0)} min';
         switchMsg = "You'll have to switch routes in $when";
       }
@@ -409,7 +564,9 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+    }
   }
 
   Future<void> _adjustCamera(double userLat, double userLng) async {
@@ -427,6 +584,7 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
     _locationSubscription?.cancel();
     _routeSwitchSub?.cancel();
     _routeStateSub?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
   }
 
@@ -475,6 +633,28 @@ class _MapTrackingScreenState extends State<MapTrackingScreen> {
         body: SafeArea(
           child: Column(
             children: [
+              // Offline mode indicator banner
+              if (!_isOnline)
+                Container(
+                  width: double.infinity,
+                  color: Colors.orange.shade700,
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.wifi_off, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Offline - Using cached route data',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: Stack(
                   children: [
@@ -713,3 +893,4 @@ class _LineSamplePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+

@@ -123,6 +123,11 @@ class NotificationService {
       dev.log('Creating notification channels failed: $e', name: 'NotificationService');
     }
 
+    // Optional: a future maintenance utility could prune legacy channels
+    // (e.g., migrate users from v2 to v3 alarm channel by deleting old ones).
+    // Kept out of initialize() to avoid accidental disruption; invoke only from a
+    // one-off maintenance path with a unit test asserting v3 channel presence.
+
     dev.log('NotificationService.initialize() done', name: 'NotificationService');
   }
 

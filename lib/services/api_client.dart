@@ -1,9 +1,14 @@
 // lib/services/api_client.dart
 import 'dart:convert';
+import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:developer' as dev;
+// Removed direct dev.log usage; using Log utility instead
+import 'package:geowake2/services/log.dart';
+import 'package:geowake2/services/secure_storage.dart';
+import 'package:geowake2/services/ssl_pinning.dart';
+import '../config/tweakables.dart';
 
 class ApiClient {
   static const String _baseUrl = 'https://geowake-production.up.railway.app/api'; // Fixed: Added https:// and /api
@@ -12,7 +17,28 @@ class ApiClient {
   
   static ApiClient? _instance;
   static ApiClient get instance => _instance ??= ApiClient._internal();
+  static void resetForTests() { _instance = null; }
+  static http.Client _client = http.Client();
+  static void setHttpClient(http.Client client) { _client = client; }
+  static List<CertificatePin> _pins = [];
+  static List<CertificatePin> get debugConfiguredPins => List.unmodifiable(_pins);
+  static void configureCertificatePins(List<CertificatePin> pins, {bool enabled = true, CertificatePinVerifier? verifier, PinEnforcer Function(CertificatePinVerifier v)? enforcerBuilder}) {
+    _pins = pins;
+    if (pins.isEmpty) return; // leave existing client
+    final v = verifier ?? DefaultCertificatePinVerifier(pins);
+    _client = PinnedHttpClientFactory.create(verifier: v, enabled: enabled, enforcerBuilder: enforcerBuilder);
+  }
+  static double authBackoffScaler = 1.0; // shrink backoff in tests
   static bool testMode = false; // When true, _makeRequest returns canned responses and records bodies
+  static bool disableConnectionTest = false; // For tests: skip connectivity probe to avoid real HTTP
+  // Test-only queued auth responses: each is a map {code:int, body:String}
+  static final Queue<Map<String, dynamic>> _testAuthResponses = Queue();
+  static int _testAuthCallCount = 0; // counts _doAuthenticate invocations in test queued mode
+  static void enqueueTestAuthResponse(int code, String body) => _testAuthResponses.add({'code': code, 'body': body});
+  static void clearTestAuthResponses() { _testAuthResponses.clear(); _testAuthCallCount = 0; }
+  static int get debugTestAuthCallCount => _testAuthCallCount;
+  static SecureStorage secureStorage = SecureStorageImpl();
+  static void setSecureStorage(SecureStorage s) { secureStorage = s; }
   static Map<String, dynamic>? lastAutocompleteBody;
   static Map<String, dynamic>? lastPlaceDetailsBody;
   static Map<String, dynamic>? lastDirectionsBody;
@@ -23,10 +49,15 @@ class ApiClient {
   String? _authToken;
   String? _deviceId;
   DateTime? _tokenExpiration;
+  Future<void>? _ongoingAuth; // guard concurrent refresh
+  Duration? _tokenLifetime; // parsed lifetime
+  static const Duration _maxEarlyRefreshWindow = Duration(minutes: 5);
+  static const double _earlyRefreshFraction = 0.10; // 10% of lifetime
+  int _authRetryCount = 0; // for exponential backoff
   
   /// Initialize the API client - call this on app startup
   Future<void> initialize() async {
-    dev.log('🚀 Initializing ApiClient...', name: 'ApiClient');
+  Log.i('ApiClient', 'Initializing ApiClient');
     // Prevent test mode in release builds
     assert(() {
       return true;
@@ -40,26 +71,28 @@ class ApiClient {
       await _authenticate();
     }
     
-    // Test connection
-    await testConnection();
+    // Test connection (skippable for tests)
+    if (!disableConnectionTest) {
+      await testConnection();
+    }
   }
   
   /// Test server connection
   Future<void> testConnection() async {
     try {
-      dev.log('🔗 Testing connection to: $_baseUrl', name: 'ApiClient');
-      final response = await http.get(
+  Log.d('ApiClient', 'Testing connection to: $_baseUrl');
+      final response = await _client.get(
         Uri.parse('$_baseUrl/health'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
       
       if (response.statusCode == 200) {
-        dev.log('✅ Server connection successful', name: 'ApiClient');
+  Log.i('ApiClient', 'Server connection successful');
       } else {
-        dev.log('⚠️ Server responded with: ${response.statusCode}', name: 'ApiClient');
+  Log.w('ApiClient', 'Server responded with: ${response.statusCode}');
       }
     } catch (e) {
-      dev.log('❌ Server connection failed: $e', name: 'ApiClient');
+  Log.w('ApiClient', 'Server connection failed: $e');
       // Don't rethrow - connection test failure shouldn't break initialization
     }
   }
@@ -67,13 +100,37 @@ class ApiClient {
   /// Check if token is expired
   bool _isTokenExpired() {
     if (_tokenExpiration == null) return true;
-    return DateTime.now().isAfter(_tokenExpiration!.subtract(const Duration(minutes: 5)));
+  final now = DateTime.now();
+    // Compute dynamic early refresh window (min of fraction * lifetime, max fixed window)
+    Duration dynamicWindow;
+    if (_tokenLifetime != null) {
+      final fractionWindow = Duration(milliseconds: (_tokenLifetime!.inMilliseconds * _earlyRefreshFraction).round());
+      dynamicWindow = fractionWindow < _maxEarlyRefreshWindow ? fractionWindow : _maxEarlyRefreshWindow;
+    } else {
+      dynamicWindow = _maxEarlyRefreshWindow; // default fallback
+    }
+    return now.isAfter(_tokenExpiration!.subtract(dynamicWindow));
   }
   
   /// Load stored token and device ID
   Future<void> _loadStoredCredentials() async {
     final prefs = await SharedPreferences.getInstance();
-    _authToken = prefs.getString(_tokenKey);
+    // Migration path: prefer secure storage; if absent but present in prefs, migrate.
+    final secureToken = await secureStorage.read(_tokenKey);
+    if (secureToken != null) {
+      _authToken = secureToken;
+      // Even if already migrated earlier, ensure any lingering legacy key is removed now
+      if (prefs.getString(_tokenKey) != null) {
+        await prefs.remove(_tokenKey);
+      }
+    } else {
+      final legacy = prefs.getString(_tokenKey);
+      if (legacy != null) {
+        await secureStorage.write(_tokenKey, legacy);
+        _authToken = legacy;
+        await prefs.remove(_tokenKey); // remove legacy token
+      }
+    }
     _deviceId = prefs.getString(_deviceIdKey);
     
     // Load token expiration if exists
@@ -85,50 +142,145 @@ class ApiClient {
   
   /// Authenticate with server using bundle ID
   Future<void> _authenticate() async {
+    // In test mode without queued responses, avoid real HTTP auth; seed dummy token if missing
+    if (testMode && _testAuthResponses.isEmpty) {
+      if (_authToken == null) {
+        _authToken = 'test-token';
+        _tokenLifetime = const Duration(hours: 1);
+        _tokenExpiration = DateTime.now().add(_tokenLifetime!);
+        await _saveCredentials(rawExpires: '3600s');
+      }
+      return;
+    }
+    // Coalesce concurrent calls
+    if (_ongoingAuth != null) {
+  Log.d('ApiClient', 'Auth already in progress; awaiting existing future');
+      return _ongoingAuth;
+    }
+    _ongoingAuth = _doAuthenticate();
     try {
-      dev.log('🔐 Authenticating with server...', name: 'ApiClient');
+      await _ongoingAuth;
+    } finally {
+      _ongoingAuth = null;
+    }
+  }
+
+  Future<void> _doAuthenticate() async {
+    try {
+  Log.d('ApiClient', 'Authenticating with server');
+      http.Response response;
+      if (_testAuthResponses.isNotEmpty) {
+        // Test queued mode
+        _testAuthCallCount += 1;
+        final plan = _testAuthResponses.removeFirst();
+        response = http.Response(plan['body'] as String, plan['code'] as int);
+      } else {
+        response = await _client.post(
+          Uri.parse('$_baseUrl/auth/token'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'bundleId': 'com.yourcompany.geowake2',
+          }),
+        ).timeout(const Duration(seconds: 15));
+      }
       
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/token'), // Fixed: Changed to /auth/token
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'bundleId': 'com.yourcompany.geowake2', // Fixed: Updated bundle ID to match your app
-        }),
-      ).timeout(const Duration(seconds: 15));
-      
-      dev.log('📡 Auth response status: ${response.statusCode}', name: 'ApiClient');
+  Log.d('ApiClient', 'Auth response status: ${response.statusCode}');
       if (!kReleaseMode) {
-        dev.log('📡 Auth response body (redacted)', name: 'ApiClient');
+  Log.d('ApiClient', 'Auth response body (redacted)');
       }
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['success'] == true) {
           _authToken = data['token'];
-          // Set token expiration (server returns expiresIn like '24h')
-          _tokenExpiration = DateTime.now().add(const Duration(hours: 23));
-          await _saveCredentials();
-          dev.log('✅ Authentication successful', name: 'ApiClient');
+          final rawExpires = data['expiresIn'];
+          final lifetime = _parseExpiresIn(rawExpires) ?? const Duration(hours: 24);
+          _tokenLifetime = lifetime;
+          _tokenExpiration = DateTime.now().add(lifetime);
+          _authRetryCount = 0; // reset retry counter on success
+          await _saveCredentials(rawExpires: rawExpires);
+          Log.i('ApiClient', 'Authentication successful lifetime=${lifetime.inSeconds}s');
         } else {
           throw Exception('Authentication failed: ${data['error'] ?? 'Unknown error'}');
         }
       } else {
         throw Exception('HTTP ${response.statusCode}: ${response.body}');
       }
-    } catch (e) {
-      dev.log('❌ Authentication failed: $e', name: 'ApiClient');
+    } catch (e, st) {
+  Log.w('ApiClient', 'Authentication failed: $e');
+      Log.e('ApiClient', 'Authentication failure', e, st);
+      // exponential backoff with jitter for transient failures up to 5 tries
+      if (_authRetryCount < 5) {
+        _authRetryCount += 1;
+        final baseDelayMs = (1 << (_authRetryCount - 1)) * 500; // 500,1000,2000,4000,8000
+        final jitterMs = (baseDelayMs * 0.2).toInt();
+        int computed = baseDelayMs + _randomJitter(jitterMs);
+        if (authBackoffScaler != 1.0) computed = (computed * authBackoffScaler).round();
+        final delay = Duration(milliseconds: computed);
+  Log.d('ApiClient', 'Auth retry #$_authRetryCount in ${delay.inMilliseconds}ms');
+        if (delay.inMilliseconds > 0) await Future.delayed(delay);
+        return _doAuthenticate();
+      }
       rethrow;
     }
   }
   
   /// Save credentials to local storage
-  Future<void> _saveCredentials() async {
+  Future<void> _saveCredentials({dynamic rawExpires}) async {
     final prefs = await SharedPreferences.getInstance();
-    if (_authToken != null) await prefs.setString(_tokenKey, _authToken!);
+    if (_authToken != null) {
+      await secureStorage.write(_tokenKey, _authToken!);
+      // Remove legacy copy if lingering
+      await prefs.remove(_tokenKey);
+    }
     if (_deviceId != null) await prefs.setString(_deviceIdKey, _deviceId!);
     if (_tokenExpiration != null) {
       await prefs.setString('${_tokenKey}_exp', _tokenExpiration!.toIso8601String());
     }
+    if (rawExpires != null) {
+      await prefs.setString('${_tokenKey}_raw_expires', rawExpires.toString());
+    }
+  }
+
+  // Parse expiresIn formats like '24h', '3600s', '15m', plain seconds int, or ISO8601 duration (subset)
+  Duration? _parseExpiresIn(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is int) return Duration(seconds: raw);
+    if (raw is String) {
+      final s = raw.trim();
+      final intMatch = int.tryParse(s);
+      if (intMatch != null) return Duration(seconds: intMatch);
+  final unitMatch = RegExp(r'^(\d+)([smhd])$').firstMatch(s);
+      if (unitMatch != null) {
+        final v = int.parse(unitMatch.group(1)!);
+        switch (unitMatch.group(2)) {
+          case 's': return Duration(seconds: v);
+          case 'm': return Duration(minutes: v);
+          case 'h': return Duration(hours: v);
+          case 'd': return Duration(days: v);
+        }
+      }
+      // Basic ISO8601 duration like PT24H
+  final iso = RegExp(r'^P(T)?(\d+H)?(\d+M)?(\d+S)?').firstMatch(s.toUpperCase());
+      if (iso != null) {
+        int hours = 0, minutes = 0, seconds = 0;
+        final hMatch = RegExp(r'(\\d+)H').firstMatch(s.toUpperCase());
+        if (hMatch != null) hours = int.parse(hMatch.group(1)!);
+        final mMatch = RegExp(r'(\\d+)M').firstMatch(s.toUpperCase());
+        if (mMatch != null) minutes = int.parse(mMatch.group(1)!);
+        final secMatch = RegExp(r'(\\d+)S').firstMatch(s.toUpperCase());
+        if (secMatch != null) seconds = int.parse(secMatch.group(1)!);
+        return Duration(hours: hours, minutes: minutes, seconds: seconds);
+      }
+    }
+    return null; // unknown format
+  }
+
+  int _randomJitter(int max) {
+    if (max <= 0) return 0;
+    // simple LCG-based jitter without importing dart:math Random (stay lightweight)
+    final micros = DateTime.now().microsecondsSinceEpoch;
+    return (micros % max);
   }
   
   /// Build headers with authentication
@@ -145,6 +297,54 @@ class ApiClient {
   }
   
   /// Make authenticated API request with auto-retry on auth failure
+  /// Helper to retry network requests on transient failures
+  Future<http.Response> _requestWithRetry(
+    Future<http.Response> Function() request,
+    {int maxRetries = GeoWakeTweakables.networkMaxRetries}
+  ) async {
+    int attempt = 0;
+    Duration delay = Duration(seconds: GeoWakeTweakables.networkRetryInitialDelaySeconds);
+    
+    while (true) {
+      try {
+        attempt++;
+        final response = await request();
+        
+        // Success or client error (don't retry)
+        if (response.statusCode < 500) {
+          return response;
+        }
+        
+        // Server error (5xx) - retry if we have attempts left
+        if (attempt >= maxRetries) {
+          Log.w('ApiClient', 'Max retries ($maxRetries) reached with 5xx error');
+          return response;
+        }
+        
+        Log.d('ApiClient', 'Server error (${response.statusCode}), retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries)');
+        await Future.delayed(delay);
+        delay = Duration(seconds: (delay.inSeconds * 2).clamp(
+          GeoWakeTweakables.networkRetryInitialDelaySeconds,
+          GeoWakeTweakables.networkRetryMaxDelaySeconds,
+        ));
+        
+      } catch (e) {
+        // Network error (timeout, no connection, etc.)
+        if (attempt >= maxRetries) {
+          Log.w('ApiClient', 'Max retries ($maxRetries) reached with network error: $e');
+          rethrow;
+        }
+        
+        Log.d('ApiClient', 'Network error, retrying in ${delay.inSeconds}s (attempt $attempt/$maxRetries): $e');
+        await Future.delayed(delay);
+        delay = Duration(seconds: (delay.inSeconds * 2).clamp(
+          GeoWakeTweakables.networkRetryInitialDelaySeconds,
+          GeoWakeTweakables.networkRetryMaxDelaySeconds,
+        ));
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _makeRequest(
     String method,
     String endpoint, {
@@ -204,7 +404,7 @@ class ApiClient {
       }
       // Ensure we have a valid token
       if (_authToken == null || _isTokenExpired()) {
-        dev.log('🔄 Token missing or expired, authenticating...', name: 'ApiClient');
+  Log.d('ApiClient', 'Token missing or expired, authenticating');
         await _authenticate();
       }
       
@@ -213,46 +413,47 @@ class ApiClient {
         uri = uri.replace(queryParameters: queryParams);
       }
       
-  dev.log('📡 Making ${method.toUpperCase()} request to: $uri', name: 'ApiClient');
+    Log.d('ApiClient', 'Making ${method.toUpperCase()} request to: $uri');
       
+      // Retry logic for transient network failures
       late http.Response response;
       final headers = _buildHeaders();
       
-      switch (method.toUpperCase()) {
-        case 'GET':
-          response = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
-          break;
-        case 'POST':
-          response = await http.post(
-            uri, 
-            headers: headers,
-            body: body != null ? jsonEncode(body) : null,
-          ).timeout(const Duration(seconds: 15));
-          break;
-        default:
-          throw Exception('Unsupported HTTP method: $method');
-      }
+      response = await _requestWithRetry(() async {
+        switch (method.toUpperCase()) {
+          case 'GET':
+            return await _client.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+          case 'POST':
+            return await _client.post(
+              uri,
+              headers: headers,
+              body: body != null ? jsonEncode(body) : null,
+            ).timeout(const Duration(seconds: 15));
+          default:
+            throw Exception('Unsupported HTTP method: $method');
+        }
+      });
       
-      dev.log('📡 Response status: ${response.statusCode}', name: 'ApiClient');
+  Log.d('ApiClient', 'Response status: ${response.statusCode}');
       if (!kReleaseMode) {
         final preview = response.body.length > 200 ? '${response.body.substring(0, 200)}...' : response.body;
-        dev.log('📡 Response body preview (redacted in release): $preview', name: 'ApiClient');
+  Log.d('ApiClient', 'Response body preview (redacted in release): $preview');
       }
       
       // Handle token expiration
       if (response.statusCode == 401) {
-        dev.log('🔄 Token expired (401), re-authenticating...', name: 'ApiClient');
-        await _authenticate();
+  Log.d('ApiClient', 'Token expired (401), re-authenticating');
+        await _authenticate(); // guarded
         
         // Retry the request with new token
         headers['Authorization'] = 'Bearer $_authToken';
         switch (method.toUpperCase()) {
           case 'GET':
-            response = await http.get(uri, headers: headers);
+            response = await _client.get(uri, headers: headers);
             break;
           case 'POST':
-            response = await http.post(
-              uri, 
+            response = await _client.post(
+              uri,
               headers: headers,
               body: body != null ? jsonEncode(body) : null,
             );
@@ -266,8 +467,9 @@ class ApiClient {
       } else {
         throw Exception('HTTP ${response.statusCode}: ${response.body}');
       }
-    } catch (e) {
-      dev.log('❌ API request failed: $e', name: 'ApiClient');
+    } catch (e, st) {
+  Log.w('ApiClient', 'API request failed: $e');
+      Log.e('ApiClient', 'Request failed $endpoint', e, st);
       rethrow;
     }
   }
@@ -283,7 +485,7 @@ class ApiClient {
     String mode = 'driving',
     String? transitMode,
   }) async {
-    dev.log('🗺️ Getting directions from $origin to $destination', name: 'ApiClient');
+  Log.d('ApiClient', 'Get directions $origin -> $destination');
     
     final body = <String, dynamic>{
       'origin': origin,
@@ -303,7 +505,7 @@ class ApiClient {
     String? components,
     String? sessionToken,
   }) async {
-    dev.log('🔍 Getting autocomplete for: "$input"', name: 'ApiClient');
+  Log.d('ApiClient', 'Autocomplete input="$input"');
     
     final body = <String, dynamic>{
       'input': input,
@@ -328,7 +530,7 @@ class ApiClient {
     required String placeId,
     String? sessionToken,
   }) async {
-    dev.log('📍 Getting place details for: $placeId', name: 'ApiClient');
+  Log.d('ApiClient', 'Place details placeId=$placeId');
     
     final body = <String, String>{
       'place_id': placeId,
@@ -346,7 +548,7 @@ class ApiClient {
     required String location,
     String radius = '500',
   }) async {
-    dev.log('🚇 Getting nearby transit stations at: $location', name: 'ApiClient');
+  Log.d('ApiClient', 'Nearby transit stations at: $location');
     
     final body = <String, dynamic>{
       'location': location,
@@ -369,7 +571,7 @@ class ApiClient {
   Future<Map<String, dynamic>?> geocode({
     required String latlng,
   }) async {
-    dev.log('🌍 Geocoding: $latlng', name: 'ApiClient');
+  Log.d('ApiClient', 'Geocoding latlng=$latlng');
     
     final body = <String, String>{
       'address': latlng, // Note: server expects 'address' parameter for geocoding

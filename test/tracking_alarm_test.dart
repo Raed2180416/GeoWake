@@ -63,6 +63,9 @@ bool mockAlarmWasTriggered = false;
 /// Instead of showing a real notification, it just sets our flag to true.
 class MockableNotificationService implements NotificationService {
   @override
+  Map<String, dynamic>? get lastProgressPayload => null;
+
+  @override
   Future<void> cancelAlarm() async {
     // No-op for tests
   }
@@ -101,6 +104,51 @@ class MockableNotificationService implements NotificationService {
 
   @override
   Future<void> showPendingAlarmScreenIfAny() async {
+    // Mock implementation
+  }
+
+  @override
+  Future<void> restoreJourneyProgressIfNeeded() async {}
+
+  @override
+  Future<void> endTrackingNativeFallback() async {
+    // Mock implementation
+  }
+
+  @override
+  Future<void> persistProgressSnapshot({
+    required String title,
+    required String subtitle,
+    required double progress,
+    DateTime? timestamp,
+  }) async {
+    // Mock implementation
+  }
+
+  @override
+  Future<void> scheduleProgressWakeFallback({
+    Duration interval = const Duration(minutes: 10),
+  }) async {
+    // Mock implementation
+  }
+
+  @override
+  Future<void> cancelProgressWakeFallback() async {
+    // Mock implementation
+  }
+
+  @override
+  Future<bool> ensureProgressNotificationPresent() async {
+    return true;
+  }
+
+  @override
+  Future<void> maybePromptBatteryOptimization() async {
+    // Mock implementation
+  }
+
+  @override
+  Future<void> debugHandleNativeCallback(String method, dynamic arguments) async {
     // Mock implementation
   }
 }

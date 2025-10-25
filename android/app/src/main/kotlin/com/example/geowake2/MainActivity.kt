@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 import com.example.geowake2.AlarmMethodChannelHandler
 
 class MainActivity : FlutterActivity() {
@@ -17,6 +18,10 @@ class MainActivity : FlutterActivity() {
         
         // Register the method channel for alarm interactions
         AlarmMethodChannelHandler.registerWith(flutterEngine, this)
+        
+        // Register background recovery channel (CRITICAL-002 fix)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "geowake/background_recovery")
+            .setMethodCallHandler(BackgroundRecoveryHandler(this))
     }
 
     private fun createNotificationChannel() {

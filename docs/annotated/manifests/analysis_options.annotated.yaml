@@ -1,0 +1,323 @@
+# Annotated copy of analysis_options.yaml
+# Purpose: Static analysis configuration for Dart analyzer and linter.
+# This file configures code quality checks that run during development and CI/CD.
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ANALYZER OVERVIEW
+# ═══════════════════════════════════════════════════════════════════════════
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The analyzer performs:
+# - Syntax checking (compile-time errors)
+# - Type checking (type safety violations)
+# - Linting (style and best practice violations)
+# - Dead code detection
+# - Unused import detection
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+#
+# IDE integration:
+# - VS Code: Problems panel, inline squiggly underlines
+# - Android Studio: Inspections panel, inline highlighting
+# - IntelliJ IDEA: Problems panel, inline highlighting
+#
+# Command-line usage:
+#   flutter analyze                    # Analyze entire project
+#   flutter analyze lib/main.dart      # Analyze specific file
+#   flutter analyze --write=results.txt # Save results to file
+#
+# Exit codes:
+#   0 = no issues found
+#   1 = issues found
+#   2 = fatal error (invalid analysis_options.yaml, etc.)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LINT RULE SET INCLUSION
+# ═══════════════════════════════════════════════════════════════════════════
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+# include: imports lint rules from external package
+# package:flutter_lints/flutter.yaml: official Flutter team's recommended lints
+#
+# This includes:
+# - All rules from package:lints/core.yaml (Dart core lints)
+# - All rules from package:lints/recommended.yaml (Dart recommended lints)
+# - Flutter-specific rules (widget best practices, etc.)
+#
+# Total rules: ~50+ lint rules covering:
+# - Code style (naming conventions, formatting)
+# - Best practices (const constructors, immutability)
+# - Error prevention (null safety, async/await)
+# - Performance (unnecessary rebuilds, inefficient code)
+# - Maintenance (unused code, deprecated API usage)
+#
+# Flutter lints package versions:
+# - 1.x: Basic Flutter lints
+# - 2.x: Null safety lints added
+# - 3.x: More stringent null safety
+# - 4.x: Additional widget lints
+# - 5.x: Current version (as of pubspec.yaml)
+#
+# Benefits of using flutter_lints:
+# - Maintained by Flutter team (stays current with Dart updates)
+# - Curated set (not overwhelming like enabling all possible lints)
+# - Community standard (most Flutter projects use this)
+# - Regular updates (new rules added as language evolves)
+#
+# Alternative lint sets:
+# - package:lints/recommended.yaml: Dart only (no Flutter specifics)
+# - package:lints/core.yaml: Minimal set (errors only, no style)
+# - package:pedantic/analysis_options.yaml: Google's internal lints (stricter)
+# - package:effective_dart/analysis_options.yaml: Based on Effective Dart guide
+# - Custom: Define all rules manually (not recommended - very verbose)
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LINTER CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════
+linter:
+  # The lint rules applied to this project can be customized in the
+  # section below to disable rules from the `package:flutter_lints/flutter.yaml`
+  # included above or to enable additional rules. A list of all available lints
+  # and their documentation is published at https://dart.dev/lints.
+  #
+  # Full lint catalog: https://dart.dev/lints
+  # - 150+ available rules
+  # - Each rule has: name, description, examples, rationale
+  # - Rules categorized: errors, style, pub, documentation
+  #
+  # Instead of disabling a lint rule for the entire project in the
+  # section below, it can also be suppressed for a single line of code
+  # or a specific dart file by using the `// ignore: name_of_lint` and
+  # `// ignore_for_file: name_of_lint` syntax on the line or in the file
+  # producing the lint.
+  #
+  # Suppression syntax:
+  #   // ignore: rule_name
+  #   problematic_code_here();  // Suppresses rule for next line
+  #
+  #   // ignore_for_file: rule_name
+  #   // ... rest of file ...  // Suppresses rule for entire file
+  #
+  # Suppression best practices:
+  # - Use sparingly (suppression often indicates code smell)
+  # - Add comment explaining why (helps future readers)
+  # - Consider fixing code instead of suppressing
+  # - Use file-level suppression only for generated code
+  #
+  # Example valid suppressions:
+  #   // ignore: avoid_print
+  #   print('Debug message');  // OK: intentional debug output
+  #
+  #   // ignore: avoid_dynamic_calls
+  #   json['field'];  // OK: JSON parsing requires dynamic access
+  
+  rules:
+    # ───────────────────────────────────────────────────────────────────────
+    # RULE CUSTOMIZATION SECTION
+    # ───────────────────────────────────────────────────────────────────────
+    # Rules can be:
+    # - Enabled: rule_name: true (or just list rule_name)
+    # - Disabled: rule_name: false
+    # - Not listed: inherits from include (flutter_lints)
+    
+    # avoid_print: false  # Uncomment to disable the `avoid_print` rule
+    # Default: enabled (inherited from flutter_lints)
+    # What it does: Warns on print() usage in production code
+    # Rationale: print() should be replaced with logging framework in production
+    #   - print() can't be disabled in release builds
+    #   - print() doesn't support log levels (debug, info, error)
+    #   - print() output is unstructured
+    # When to disable:
+    #   - During initial development (lots of debug output)
+    #   - For command-line tools (print is appropriate)
+    # Better approach:
+    #   - Use dev.log() from dart:developer
+    #   - Use logging package with log levels
+    #   - Remove debug prints before committing
+    # Current status: enabled (commented out = use default)
+    # GeoWake usage: Code uses dev.log() in most places, some print() in tests
+    # Recommendation: Keep enabled, migrate remaining print() to dev.log()
+    
+    # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # Default: disabled (not in flutter_lints by default)
+    # What it does: Enforces single quotes ('') over double quotes ("")
+    # Rationale:
+    #   - Single quotes: slightly less typing
+    #   - Double quotes: required for string interpolation with ${}
+    # Dart convention: Single quotes preferred unless interpolation needed
+    # Example:
+    #   Good: 'hello'
+    #   Bad: "hello"
+    #   OK: "hello $name"  // Must use double quotes for interpolation
+    # When to enable:
+    #   - Want consistent quote style
+    #   - Team prefers single quotes
+    # When to keep disabled:
+    #   - Team prefers double quotes
+    #   - Don't care about quote style
+    # Current status: disabled (commented out)
+    # GeoWake usage: Mix of single and double quotes throughout code
+    # Recommendation: Enable and run `dart fix --apply` to auto-fix
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ADDITIONAL RESOURCES
+# ═══════════════════════════════════════════════════════════════════════════
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
+#
+# Official documentation covers:
+# - Full configuration options (analyzer, linter sections)
+# - Error severity configuration (error, warning, info)
+# - Exclude patterns (ignore specific files/directories)
+# - Language configuration (experiments, strict modes)
+# - Metrics configuration (lines-of-code thresholds)
+#
+# Example advanced configurations:
+#
+# analyzer:
+#   exclude:
+#     - '**.g.dart'  # Ignore generated files
+#     - 'lib/generated/**'  # Ignore generated directories
+#   
+#   errors:
+#     unused_import: error  # Promote warning to error
+#     missing_return: error  # Fail build on missing returns
+#   
+#   language:
+#     strict-casts: true  # Strict type checking
+#     strict-raw-types: true  # Require type arguments on generics
+#
+# linter:
+#   rules:
+#     # Style rules
+#     prefer_single_quotes: true
+#     prefer_const_constructors: true
+#     prefer_const_declarations: true
+#     
+#     # Best practices
+#     avoid_print: true
+#     avoid_unnecessary_containers: true
+#     use_key_in_widget_constructors: true
+#     
+#     # Error prevention
+#     unawaited_futures: true
+#     avoid_dynamic_calls: true
+#     
+#     # Performance
+#     prefer_const_literals_to_create_immutables: true
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FILE SUMMARY: analysis_options.yaml - Static Analysis Configuration
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# This file configures the Dart analyzer and linter for the GeoWake project.
+# It enforces code quality standards through static analysis.
+#
+# CURRENT CONFIGURATION:
+#
+# - Base rules: package:flutter_lints/flutter.yaml (~50 rules)
+# - Custom rules: None (all rules use defaults)
+# - Exclusions: None (analyzes all .dart files)
+# - Error overrides: None (warnings stay as warnings)
+#
+# ACTIVE LINT RULES (from flutter_lints):
+#
+# Code Style:
+# - camel_case_types: Class names must be UpperCamelCase
+# - constant_identifier_names: Constants must be lowerCamelCase
+# - library_names: Library names must be lowercase_with_underscores
+# - non_constant_identifier_names: Variables/functions must be lowerCamelCase
+# - prefer_const_constructors: Use const for immutable widgets
+# - prefer_const_declarations: Use const for compile-time constants
+#
+# Best Practices:
+# - avoid_print: Don't use print() in production code
+# - avoid_unnecessary_containers: Remove containers with single child
+# - prefer_collection_literals: Use [], {} instead of List(), Map()
+# - prefer_is_empty: Use isEmpty instead of length == 0
+# - use_key_in_widget_constructors: Add key parameter to widgets
+#
+# Error Prevention:
+# - avoid_dynamic_calls: Avoid calling methods on dynamic
+# - avoid_null_checks_in_equality_operators: Don't compare with null
+# - no_duplicate_case_values: No duplicate switch cases
+# - null_closures: Don't pass null to functions expecting closures
+# - unrelated_type_equality_checks: Don't compare incompatible types
+#
+# Null Safety:
+# - always_declare_return_types: Declare function return types
+# - prefer_final_fields: Use final for fields that don't change
+# - unnecessary_null_aware_assignments: Remove ??= if already non-null
+# - unnecessary_nullable_for_final_variable_declarations: Remove ? from finals
+#
+# ISSUES IDENTIFIED:
+#
+# [MANIFEST-006] Minimal Customization
+# Issue: analysis_options.yaml uses all defaults with no project-specific rules
+# Impact: Missing opportunities to catch project-specific issues
+# Fix: Consider enabling additional rules:
+#   - unawaited_futures: true (catch missing awaits)
+#   - prefer_single_quotes: true (consistent quote style)
+#   - sort_constructors_first: true (consistent member order)
+#
+# [MANIFEST-007] No Exclusions
+# Issue: Analyzes all files including potential generated code
+# Impact: Lint warnings in generated files can't be fixed
+# Fix: Add exclusions for generated files if they exist:
+#   analyzer:
+#     exclude:
+#       - '**.g.dart'
+#       - 'lib/generated/**'
+#
+# [MANIFEST-008] No Error Severity Overrides
+# Issue: All issues are warnings, none promoted to errors
+# Impact: Build succeeds even with serious issues (unused imports, etc.)
+# Fix: Promote critical issues to errors:
+#   analyzer:
+#     errors:
+#       unused_import: error
+#       dead_code: error
+#
+# [MANIFEST-009] No Metrics Configuration
+# Issue: No limits on code metrics (complexity, length, nesting)
+# Impact: Files can grow too large or complex without warning
+# Fix: Add metric limits (not officially supported yet, but good practice):
+#   # Future: when supported
+#   analyzer:
+#     metrics:
+#       cyclomatic-complexity: 10
+#       lines-of-code: 300
+#
+# CONNECTIONS TO CODE:
+#
+# - All .dart files in lib/: Linted according to these rules
+# - All .dart files in test/: Linted according to these rules
+# - IDE integration: Real-time lint feedback during development
+# - CI/CD: `flutter analyze` should run in pipeline
+#
+# RECOMMENDATIONS:
+#
+# 1. Enable prefer_single_quotes for consistency
+# 2. Add exclusions for any generated code
+# 3. Promote unused_import and dead_code to errors
+# 4. Consider enabling unawaited_futures to catch async bugs
+# 5. Run `flutter analyze` in CI/CD to fail builds on issues
+# 6. Review and update rules quarterly as language evolves
+#
+# BEST PRACTICES:
+#
+# - Run `flutter analyze` before every commit
+# - Fix all analyzer issues before merging (zero-warning policy)
+# - Use `// ignore:` sparingly and document why
+# - Keep this file in version control (everyone uses same rules)
+# - Update flutter_lints package regularly for new rules
+# - Discuss rule changes with team before modifying
+#
+# This file is the foundation of code quality enforcement. It catches bugs
+# before runtime, ensures consistent style, and guides developers toward
+# best practices. A well-configured analysis_options.yaml prevents many
+# common bugs and maintenance headaches.

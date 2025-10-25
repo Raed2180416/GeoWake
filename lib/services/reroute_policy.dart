@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:geowake2/services/event_bus.dart';
 
 class RerouteDecision {
   final bool shouldReroute;
@@ -34,14 +35,17 @@ class ReroutePolicy {
     final now = at;
     if (!_online) {
       _decisionCtrl.add(RerouteDecision(false, now));
+      EventBus().emit(RerouteDecisionEvent('offline_cooldown_or_offline'));
       return;
     }
     if (_cooldownActive(now)) {
       _decisionCtrl.add(RerouteDecision(false, now));
+      EventBus().emit(RerouteDecisionEvent('cooldown_active'));
       return;
     }
     _lastRerouteAt = now;
     _decisionCtrl.add(RerouteDecision(true, now));
+    EventBus().emit(RerouteDecisionEvent('sustained_deviation'));
   }
 
   void dispose() {

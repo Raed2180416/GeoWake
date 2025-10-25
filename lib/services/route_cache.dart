@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'dart:developer' as dev;
+import 'package:geowake2/services/log.dart';
+import '../config/tweakables.dart';
+import 'secure_hive_init.dart';
 
 /// Simple Hive-backed route cache for Directions API responses.
 /// Keyed by a stable hash of origin+destination+mode.
@@ -52,22 +54,26 @@ class RouteCacheEntry {
 
 class RouteCache {
   static const String boxName = 'route_cache_v1';
-  static const Duration defaultTtl = Duration(minutes: 5);
-  static const double defaultOriginDeviationMeters = 300.0;
+  static const Duration defaultTtl = GeoWakeTweakables.routeCacheTtl;
+  static const double defaultOriginDeviationMeters = GeoWakeTweakables.routeCacheOriginDeviationMeters;
+  static int maxEntries = GeoWakeTweakables.routeCacheMaxEntries; // configurable cap
 
   static Box<String>? _box; // store JSON strings
 
   static Future<void> _ensureOpen() async {
     if (_box != null && _box!.isOpen) return;
     try {
-      _box = await Hive.openBox<String>(boxName);
+      // Use secure encrypted box
+      _box = await SecureHiveInit.openEncryptedBox<String>(boxName);
+      Log.i('RouteCache', 'Encrypted box opened successfully');
     } catch (e) {
-      dev.log('Error opening route cache box: $e. Attempting recreate.', name: 'RouteCache');
+      Log.w('RouteCache', 'Error opening encrypted box: $e. Attempting recreate.');
       try {
         await Hive.deleteBoxFromDisk(boxName);
-        _box = await Hive.openBox<String>(boxName);
+        _box = await SecureHiveInit.openEncryptedBox<String>(boxName);
+        Log.i('RouteCache', 'Encrypted box recreated successfully');
       } catch (e2) {
-        dev.log('Failed to recreate route cache box: $e2', name: 'RouteCache');
+        Log.e('RouteCache', 'Failed to recreate encrypted box', e2);
         rethrow;
       }
     }
@@ -114,7 +120,7 @@ class RouteCache {
 
       // TTL check
       if (DateTime.now().difference(entry.timestamp) > ttl) {
-        dev.log('RouteCache stale by TTL. Key evicted.', name: 'RouteCache');
+  Log.d('RouteCache', 'Stale by TTL. Evicted key');
         await _box!.delete(key);
         return null;
       }
@@ -127,14 +133,14 @@ class RouteCache {
         entry.origin.longitude,
       );
       if (devMeters >= originDeviationMeters) {
-        dev.log('RouteCache invalid by origin deviation ${devMeters.toStringAsFixed(0)}m.', name: 'RouteCache');
+  Log.d('RouteCache', 'Invalid by origin deviation ${devMeters.toStringAsFixed(0)}m. Evicted');
         await _box!.delete(key);
         return null;
       }
 
       return entry;
     } catch (e) {
-      dev.log('RouteCache decode failure: $e. Deleting key.', name: 'RouteCache');
+  Log.w('RouteCache', 'Decode failure. Deleting key. $e');
       await _box!.delete(key);
       return null;
     }
@@ -145,6 +151,34 @@ class RouteCache {
     final key = entry.key;
     final jsonStr = jsonEncode(entry.toJson());
     await _box!.put(key, jsonStr);
+    // Evict if over capacity
+    if (_box!.length > maxEntries) {
+      try {
+        // Parse all entries to locate oldest timestamp
+        DateTime? oldest;
+        String? oldestKey;
+        for (final k in _box!.keys) {
+          final raw = _box!.get(k);
+          if (raw == null) continue;
+          try {
+            final decoded = jsonDecode(raw) as Map<String, dynamic>;
+            final ts = DateTime.tryParse(decoded['timestamp'] as String? ?? '');
+            if (ts != null && (oldest == null || ts.isBefore(oldest))) {
+              oldest = ts;
+              oldestKey = k as String;
+            }
+          } catch (e) {
+            AppLogger.I.warn('Operation failed', domain: 'tracking', context: {'error': e.toString()});
+          }
+        }
+        if (oldestKey != null) {
+          await _box!.delete(oldestKey);
+          Log.d('RouteCache', 'Evicted oldest entry (capacity exceeded)');
+        }
+      } catch (e) {
+  Log.w('RouteCache', 'Eviction error: $e');
+      }
+    }
   }
 
   static Future<void> clear() async {
